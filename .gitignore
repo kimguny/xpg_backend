@@ -1,0 +1,195 @@
+# 바이트 컴파일된 / 최적화된 / DLL 파일들
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C 확장 모듈
+*.so
+
+# 배포 / 패키징
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  보통 이 파일들은 템플릿에서 파이썬 스크립트로 작성되어
+#  PyInstaller가 exe를 빌드하기 전에 날짜/기타 정보를 삽입합니다.
+*.manifest
+*.spec
+
+# 설치 로그
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 유닛 테스트 / 커버리지 리포트
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# 번역 파일
+*.mo
+*.pot
+
+# Django 관련
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask 관련
+instance/
+.webassets-cache
+
+# Scrapy 관련
+.scrapy
+
+# Sphinx 문서
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   pypa/pipenv#598에 따르면, 버전 관리에 Pipfile.lock을 포함하는 것이 권장됩니다.
+#   하지만 협업 시 플랫폼별 종속성이나 크로스플랫폼 지원이 없는 종속성이 있는 경우,
+#   pipenv가 작동하지 않는 종속성을 설치하거나 필요한 모든 종속성을 설치하지 않을 수 있습니다.
+#Pipfile.lock
+
+# PEP 582; github.com/David-OConnor/pyflow 등에서 사용
+__pypackages__/
+
+# Celery 관련
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath 파싱된 파일
+*.sage.py
+
+# 가상환경
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder 프로젝트 설정
+.spyderproject
+.spyproject
+
+# Rope 프로젝트 설정
+.ropeproject
+
+# mkdocs 문서
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre 타입 체커
+.pyre/
+
+# FastAPI 관련
+.venv/
+venv/
+__pycache__/
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.sqlite3
+
+# 환경 변수 파일
+.env
+.env.local
+.env.production
+.env.staging
+
+# IDE 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS에서 생성되는 파일
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 로그 파일
+logs/
+*.log
+
+# 임시 파일
+tmp/
+temp/
+
+# 미디어 파일 (업로드 파일을 커밋하지 않을 경우)
+media/
+uploads/
+
+# 정적 파일 (생성된 경우)
+static/
+
+# 민감한 데이터가 포함된 설정 파일
+config.ini
+secrets.json
+
+# 백업 파일
+*.bak
+*.backup
+
+# pytest
+.pytest_cache/
+test-results/
+
+# 커버리지
+htmlcov/
+.coverage
+
+# FastAPI 업로드
+uploads/
+files/
