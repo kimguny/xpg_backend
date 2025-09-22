@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8080",
-        "http://localhost:3001"
+        "http://localhost:3001",
         "http://121.126.223.205",
         "https://121.126.223.205"
     ]
