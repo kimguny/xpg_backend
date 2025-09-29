@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, text
 from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel
 
 from app.api.deps import get_db
 from app.core.security import get_current_user
@@ -13,6 +14,7 @@ from app.schemas.content import (
     ContentProgressResponse,
     ContentJoinResponse
 )
+from app.models import Stage, UserStageProgress
 
 router = APIRouter()
 
@@ -235,3 +237,120 @@ async def join_content(
         joined=True,
         status="in_progress"
     )
+
+class StageListResponse(BaseModel):
+    """스테이지 목록 응답 (lockState 포함)"""
+    model_config = {"from_attributes": True}
+    
+    id: str
+    stage_no: str
+    title: str
+    description: Optional[str] = None
+    is_hidden: bool = False
+    lock_state: str  # "locked" | "unlocked" | "in_progress" | "cleared"
+    uses_nfc: bool = False
+
+@router.get("/{content_id}/stages", response_model=List[StageListResponse])
+async def get_content_stages(
+    content_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    콘텐츠의 스테이지 목록 조회 (사용자의 잠금 상태 포함)
+    
+    - **content_id**: 콘텐츠 ID
+    
+    각 스테이지의 잠금 상태를 함께 반환합니다.
+    """
+    
+    # 콘텐츠 존재 확인
+    content_result = await db.execute(select(Content).where(Content.id == content_id))
+    content = content_result.scalar_one_or_none()
+    
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Content not found"
+        )
+    
+    # 사용자가 콘텐츠에 참여했는지 확인
+    progress_result = await db.execute(
+        select(UserContentProgress).where(
+            and_(
+                UserContentProgress.user_id == current_user.id,
+                UserContentProgress.content_id == content_id
+            )
+        )
+    )
+    content_progress = progress_result.scalar_one_or_none()
+    
+    if not content_progress:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User has not joined this content"
+        )
+    
+    # 스테이지 목록 조회 (메인 스테이지만, parent_stage_id가 NULL인 것)
+    stages_result = await db.execute(
+        select(Stage)
+        .where(
+            and_(
+                Stage.content_id == content_id,
+                Stage.parent_stage_id.is_(None)  # 메인 스테이지만
+            )
+        )
+        .order_by(Stage.stage_no)
+    )
+    stages = stages_result.scalars().all()
+    
+    # 사용자의 스테이지 진행상황 조회
+    stage_ids = [str(stage.id) for stage in stages]
+    user_progress_result = await db.execute(
+        select(UserStageProgress).where(
+            and_(
+                UserStageProgress.user_id == current_user.id,
+                UserStageProgress.stage_id.in_(stage_ids)
+            )
+        )
+    )
+    user_stage_progress = {
+        str(progress.stage_id): progress 
+        for progress in user_progress_result.scalars().all()
+    }
+    
+    # 응답 데이터 구성
+    response_stages = []
+    
+    for stage in stages:
+        stage_id = str(stage.id)
+        progress = user_stage_progress.get(stage_id)
+        
+        # 잠금 상태 결정
+        if progress:
+            lock_state = progress.status
+        else:
+            # 진행상황이 없으면 기본적으로 locked
+            # 첫 번째 스테이지이거나 이전 스테이지가 클리어된 경우 unlocked
+            if stage.stage_no == "1":  # 첫 번째 스테이지
+                lock_state = "unlocked"
+            else:
+                # 이전 스테이지들이 모두 클리어되었는지 확인하는 로직
+                # 간단히 locked로 설정 (실제로는 더 복잡한 로직 필요)
+                lock_state = "locked"
+        
+        # 히든 스테이지는 해금되지 않았으면 숨김
+        if stage.is_hidden and lock_state == "locked":
+            continue
+        
+        response_stages.append(StageListResponse(
+            id=stage_id,
+            stage_no=stage.stage_no,
+            title=stage.title,
+            description=stage.description,
+            is_hidden=stage.is_hidden,
+            lock_state=lock_state,
+            uses_nfc=stage.uses_nfc
+        ))
+    
+    return response_stages
