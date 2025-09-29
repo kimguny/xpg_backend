@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.me import router as me_router
+from app.api.v1.stages import router as stages_router
 
 # v1 API 메인 라우터
 v1_router = APIRouter(
@@ -20,6 +21,8 @@ v1_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 
 # 사용자 프로필 라우터
 v1_router.include_router(me_router, prefix="/me", tags=["me"])
+
+v1_router.include_router(stages_router, prefix="/stages", tags=["stages"])
 
 # 향후 추가될 라우터들
 # v1_router.include_router(me_router, prefix="/me", tags=["me"])  

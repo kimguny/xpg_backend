@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from app.api.admin.users import router as users_router
 from .contents import router as contents_router
+from .stages import router as stages_router
+from .nfc_tags import router as nfc_tags_router
 
 # 관리자 API 메인 라우터
 admin_router = APIRouter(
@@ -18,6 +20,9 @@ admin_router = APIRouter(
 admin_router.include_router(users_router, tags=["admin-users"])
 
 admin_router.include_router(contents_router, prefix="/contents", tags=["admin-contents"])
+
+admin_router.include_router(stages_router, prefix="/stages", tags=["admin-stages"])
+admin_router.include_router(nfc_tags_router, prefix="/nfc-tags", tags=["admin-nfc"])
 
 # 향후 추가될 라우터들
 # admin_router.include_router(contents_router, tags=["admin-contents"])
