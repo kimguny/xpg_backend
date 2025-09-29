@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.api.admin.users import router as users_router
+from .contents import router as contents_router
 
 # 관리자 API 메인 라우터
 admin_router = APIRouter(
@@ -15,6 +16,8 @@ admin_router = APIRouter(
 
 # 하위 라우터들 포함
 admin_router.include_router(users_router, tags=["admin-users"])
+
+admin_router.include_router(contents_router, prefix="/contents", tags=["admin-contents"])
 
 # 향후 추가될 라우터들
 # admin_router.include_router(contents_router, tags=["admin-contents"])
