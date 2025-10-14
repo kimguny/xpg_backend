@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import List
 
 from app.api.deps import get_db, get_current_user
@@ -13,6 +13,10 @@ from app.schemas.user import (
     AuthIdentityResponse
 )
 from app.core.security import verify_password, get_password_hash
+
+from app.schemas.progress import RewardHistoryItem
+from app.schemas.common import PaginatedResponse
+from app.models import RewardLedger
 
 router = APIRouter()
 
@@ -108,3 +112,34 @@ async def get_my_identities(
         AuthIdentityResponse.model_validate(identity)
         for identity in identities
     ]
+
+@router.get("/rewards", response_model=PaginatedResponse[RewardHistoryItem])
+async def get_my_rewards(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """내 보상 히스토리"""
+    
+    count_result = await db.execute(
+        select(func.count(RewardLedger.id)).where(RewardLedger.user_id == current_user.id)
+    )
+    total = count_result.scalar()
+    
+    offset = (page - 1) * size
+    rewards_result = await db.execute(
+        select(RewardLedger)
+        .where(RewardLedger.user_id == current_user.id)
+        .order_by(RewardLedger.created_at.desc())
+        .offset(offset)
+        .limit(size)
+    )
+    rewards = rewards_result.scalars().all()
+    
+    return PaginatedResponse(
+        items=[RewardHistoryItem.model_validate(r) for r in rewards],
+        page=page,
+        size=size,
+        total=total
+    )
