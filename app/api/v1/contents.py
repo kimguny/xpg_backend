@@ -5,8 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
-from app.api.deps import get_db
-from app.core.security import get_current_user
+from app.api.deps import get_db, get_current_user
 from app.models import Content, UserContentProgress, User
 from app.schemas.content import (
     ContentListResponse,
