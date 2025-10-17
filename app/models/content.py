@@ -22,10 +22,8 @@ class Content(Base):
     # 콘텐츠 유형 (story|domination)
     content_type = Column(Text, nullable=False)
 
-    # <<<<<<<<<<<<<<<<<<< 수정된 부분 1 >>>>>>>>>>>>>>>>>>>>
-    # 노출 위치 (main|event_tab 등)
-    exposure_type = Column(Text, nullable=False, default='main', server_default='main')
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>
+    # DB에 맞춰 컬럼명 및 기본값 수정
+    exposure_slot = Column(Text, nullable=False, default='story', server_default='story')
     
     # 기간 설정
     start_at = Column(DateTime(timezone=True), nullable=True)
@@ -33,8 +31,8 @@ class Content(Base):
     is_always_on = Column(Boolean, nullable=False, default=False)
     
     # 스테이지 관련
-    stage_count = Column(Integer, nullable=True)  # 표시용, 1~10
-    is_sequential = Column(Boolean, nullable=False, default=True)  # 순차 진행 여부
+    stage_count = Column(Integer, nullable=True)
+    is_sequential = Column(Boolean, nullable=False, default=True)
     
     # 보상
     reward_coin = Column(Integer, nullable=False, default=0)
@@ -46,8 +44,8 @@ class Content(Base):
     has_next_content = Column(Boolean, nullable=False, default=False)
     next_content_id = Column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="SET NULL"), nullable=True)
     
-    # 오픈 여부
-    is_open = Column(Boolean, nullable=False, default=True)
+    # DB에 맞춰 기본값 수정
+    is_open = Column(Boolean, nullable=False, default=False)
     
     # 관리자 정보
     created_by = Column(UUID(as_uuid=True), ForeignKey("admins.id"), nullable=True)
@@ -58,33 +56,30 @@ class Content(Base):
     
     # 제약조건
     __table_args__ = (
-        # 콘텐츠 유형 검증
         CheckConstraint(
             "content_type IN ('story', 'domination')",
             name="contents_content_type_chk"
         ),
+        # DB에 맞춰 제약조건 값 수정
         CheckConstraint(
-            "exposure_type IN ('main', 'event_tab')",
-            name="contents_exposure_type_chk"
+            "exposure_slot IN ('story', 'event')",
+            name="contents_exposure_slot_check"
         ),
-        # 스테이지 수 범위 검증
         CheckConstraint(
             "stage_count IS NULL OR (stage_count >= 1 AND stage_count <= 10)",
             name="contents_stage_count_range_chk"
         ),
-        # 후속 콘텐츠 일관성 검증
         CheckConstraint(
             "(has_next_content = FALSE AND next_content_id IS NULL) OR (has_next_content = TRUE AND next_content_id IS NOT NULL)",
             name="contents_next_consistency_chk"
         ),
-        # 자기 참조 방지
         CheckConstraint(
             "next_content_id IS NULL OR next_content_id != id",
             name="contents_next_not_self_chk"
         ),
     )
     
-    # 관계 설정
+    # 관계 설정 (기존과 동일)
     created_by_admin = relationship("Admin", back_populates="created_contents")
     next_content = relationship("Content", remote_side=[id])
     stages = relationship("Stage", back_populates="content", cascade="all, delete-orphan")
@@ -106,47 +101,36 @@ class Content(Base):
     
     @property
     def is_story(self) -> bool:
-        """스토리 콘텐츠인지 확인"""
         return self.content_type == 'story'
     
     @property
     def is_domination(self) -> bool:
-        """점령전 콘텐츠인지 확인"""
         return self.content_type == 'domination'
     
     @property
     def has_stages(self) -> bool:
-        """스테이지가 있는지 확인"""
         return self.stage_count is not None and self.stage_count > 0
 
 
 class ContentPrerequisite(Base):
-    """콘텐츠 선행조건 모델 (DB 문서의 content_prerequisites 테이블)"""
-    
+    """콘텐츠 선행조건 모델"""
     __tablename__ = "content_prerequisites"
     
-    # 복합 기본키
     content_id = Column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True)
     required_content_id = Column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="RESTRICT"), primary_key=True)
-    
-    # 요구사항 (현재는 'cleared'만 지원)
     requirement = Column(Text, nullable=False, default='cleared')
     
-    # 제약조건
     __table_args__ = (
-        # 요구사항 유형 검증
         CheckConstraint(
             "requirement IN ('cleared')",
             name="content_prerequisites_requirement_chk"
         ),
-        # 자기 참조 방지
         CheckConstraint(
             "content_id != required_content_id",
             name="content_prerequisites_not_self_chk"
         ),
     )
     
-    # 관계 설정
     content = relationship("Content", foreign_keys=[content_id], back_populates="prerequisites_as_content")
     required_content = relationship("Content", foreign_keys=[required_content_id], back_populates="prerequisites_as_required")
     
