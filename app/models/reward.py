@@ -5,36 +5,26 @@ from sqlalchemy.sql import func
 from app.models.base import Base
 import uuid
 
-class Reward(Base):
-    """리워드 상품 모델 (rewards 테이블)"""
-    __tablename__ = "rewards"
+class StoreReward(Base):
+    """리워드 상품 모델 (store_rewards 테이블)"""
+    __tablename__ = "store_rewards"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     store_id = Column(UUID(as_uuid=True), ForeignKey("stores.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    image_url = Column(String(255), nullable=True)
-    points_required = Column(Integer, nullable=False, default=0)
-    total_quantity = Column(Integer, nullable=False, default=0)
-    remaining_quantity = Column(Integer, nullable=False, default=0)
+    product_name = Column(Text, nullable=False)
+    product_desc = Column(Text, nullable=True)
+    image_url = Column(Text, nullable=True)
+    price_coin = Column(Integer, nullable=False, default=0)
+    stock_qty = Column(Integer, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-
+    exposure_order = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
     # 관계 설정
     store = relationship("Store", back_populates="rewards")
 
     def __repr__(self):
-        return f"<Reward(id={self.id}, name='{self.name}')>"
+        return f"<StoreReward(id={self.id}, name='{self.product_name}')>"
 
-class UserReward(Base):
-    """사용자 보유 리워드 모델 (user_rewards 테이블)"""
-    __tablename__ = "user_rewards"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    reward_id = Column(UUID(as_uuid=True), ForeignKey("rewards.id", ondelete="CASCADE"), nullable=False)
-    acquired_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    used_at = Column(DateTime(timezone=True), nullable=True)
-
-    # 관계 설정
-    user = relationship("User")
-    reward = relationship("Reward")
+# UserReward 모델은 user_rewards 테이블이 확인되면 다시 작업하겠습니다.
