@@ -19,19 +19,32 @@ router = APIRouter()
 def format_content_response(content: Content) -> ContentResponse:
     """Content 모델을 ContentResponse Pydantic 모델로 변환"""
     center_point_dict = None
-    # <<<<<<<<<<<<<<<<<<< 수정된 부분 1: .longitude -> .x, .latitude -> .y >>>>>>>>>>>>>>>>>>>>
     # PostGIS geography 타입에서 좌표를 안전하게 추출
     if content.center_point and hasattr(content.center_point, 'x'):
         center_point_dict = {
             "lon": float(content.center_point.x),
             "lat": float(content.center_point.y)
         }
-    
-    # Pydantic 모델로 변환하면서 center_point를 수동으로 설정
-    content_data = ContentResponse.model_validate(content, from_attributes=True).model_dump()
-    content_data['center_point'] = center_point_dict
-    
-    return ContentResponse(**content_data)
+
+    # SQLAlchemy 객체의 속성을 Pydantic 모델 필드에 직접 매핑합니다.
+    return ContentResponse(
+        id=content.id,
+        title=content.title,
+        description=content.description,
+        content_type=content.content_type,
+        exposure_slot=content.exposure_slot,
+        is_always_on=content.is_always_on,
+        reward_coin=content.reward_coin,
+        center_point=center_point_dict, # 변환된 딕셔너리를 사용
+        has_next_content=content.has_next_content,
+        next_content_id=content.next_content_id,
+        created_at=content.created_at,
+        start_at=content.start_at,
+        end_at=content.end_at,
+        stage_count=content.stage_count,
+        is_sequential=content.is_sequential,
+        is_open=content.is_open
+    )
 
 @router.post("", response_model=ContentResponse)
 async def create_content(
@@ -63,7 +76,6 @@ async def create_content(
     await db.commit()
     await db.refresh(content)
     
-    # <<<<<<<<<<<<<<<<<<< 수정된 부분 2: 변환 함수 사용 >>>>>>>>>>>>>>>>>>>>
     return format_content_response(content)
 
 @router.patch("/{content_id}", response_model=ContentResponse)
@@ -127,6 +139,7 @@ async def set_content_prerequisites(
         
     await db.execute(delete(ContentPrerequisite).where(ContentPrerequisite.content_id == content_id))
     
+    new_prerequisites = []
     for req in prerequisites_data.requirements:
         req_result = await db.execute(select(Content).where(Content.id == req.required_content_id))
         if not req_result.scalar_one_or_none():
@@ -134,9 +147,10 @@ async def set_content_prerequisites(
         
         prerequisite = ContentPrerequisite(content_id=content_id, required_content_id=req.required_content_id, requirement=req.requirement)
         db.add(prerequisite)
+        new_prerequisites.append(req.model_dump())
         
     await db.commit()
-    return {"content_id": content_id, "requirements": [req.model_dump() for req in prerequisites_data.requirements]}
+    return {"content_id": content_id, "requirements": new_prerequisites}
 
 @router.get("", response_model=PaginatedResponse[ContentResponse])
 async def get_contents_admin(
@@ -224,9 +238,9 @@ async def toggle_content_open(
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
+        raise HTTPException(status_code=status.HTTP_4_NOT_FOUND, detail="Content not found")
         
     content.is_open = not content.is_open
     await db.commit()
     await db.refresh(content)
-    return {"content_id": content_id, "is_open": content.is_open}
+    return {"content_id": str(content.id), "is_open": content.is_open}
