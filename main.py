@@ -40,11 +40,9 @@ async def startup_event():
     db_connected = await check_db_connection()
     if not db_connected:
         print("Database connection failed!")
-        # 필요시 여기서 앱 종료
     else:
         print("Database connected successfully")
     
-    # 개발 환경에서만 테이블 존재 확인
     if settings.DEBUG:
         await init_db()
 
@@ -85,8 +83,10 @@ async def health_check():
 from app.api.admin import admin_router
 from app.api.v1 import v1_router
 
-app.include_router(admin_router)
-app.include_router(v1_router)
+# admin_router에도 prefix와 tags를 추가하여 API 경로를 일관성 있게 만듭니다.
+app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(v1_router, prefix="/api/v1", tags=["App"])
+
 
 if __name__ == "__main__":
     import uvicorn
