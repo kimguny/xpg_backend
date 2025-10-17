@@ -41,12 +41,25 @@ class ContentUpdate(BaseModel):
     is_sequential: Optional[bool] = None
 
 class ContentResponse(ContentBase):
-    """콘텐츠 응답 스키마. ContentBase를 상속받고 추가 필드를 정의."""
+    """콘텐츠 응답 스키마 (관리자용 상세). ContentBase를 상속받고 추가 필드를 정의."""
     id: uuid.UUID
     has_next_content: bool = False
     next_content_id: Optional[uuid.UUID] = None
     created_at: datetime
     is_open: bool
+
+    class Config:
+        from_attributes = True
+
+class ContentListResponse(BaseModel):
+    """콘텐츠 목록 응답 (사용자용)"""
+    id: uuid.UUID
+    title: str
+    content_type: str
+    is_always_on: bool
+    reward_coin: int
+    center_point: Optional[Dict[str, float]] = None
+    has_next_content: bool
     
     class Config:
         from_attributes = True
@@ -61,3 +74,16 @@ class PrerequisiteItem(BaseModel):
 
 class ContentPrerequisitesUpdate(BaseModel):
     requirements: List[PrerequisiteItem]
+
+class ContentProgressResponse(BaseModel):
+    """콘텐츠 진행상황 응답"""
+    status: str
+    joined_at: Optional[datetime] = None
+    cleared_at: Optional[datetime] = None
+    last_stage_no: Optional[str] = None
+    total_play_minutes: int = 0
+
+class ContentJoinResponse(BaseModel):
+    """콘텐츠 참여 응답"""
+    joined: bool = True
+    status: str = "in_progress"
