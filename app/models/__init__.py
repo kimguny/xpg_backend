@@ -6,15 +6,15 @@ from app.models.user import User
 from app.models.auth_identity import AuthIdentity
 from app.models.admin import Admin
 
-# 콘텐츠 관련 모델  
+# 콘텐츠 관련 모델
 from app.models.content import Content, ContentPrerequisite
 
 # 스테이지 관련 모델
 from app.models.stage import (
-    Stage, 
-    StageHint, 
-    HintImage, 
-    StagePuzzle, 
+    Stage,
+    StageHint,
+    HintImage,
+    StagePuzzle,
     StageUnlock
 )
 
@@ -23,40 +23,51 @@ from app.models.nfc_tag import NFCTag, NFCScanLog
 
 # 진행 상황 및 보상 모델
 from app.models.progress import (
-    UserContentProgress, 
-    UserStageProgress, 
+    UserContentProgress,
+    UserStageProgress,
     RewardLedger
 )
+
+# 매장 및 리워드 모델
+from app.models.store import Store
+from app.models.reward import Reward, UserReward
 
 # 모든 모델을 리스트로 정리 (Alembic 등에서 사용)
 __all__ = [
     # Base classes
-    "Base", 
-    "BaseModel", 
+    "Base",
+    "BaseModel",
     "BaseModelWithoutTimestamp",
-    
+
     # User models
-    "User", 
-    "AuthIdentity", 
+    "User",
+    "AuthIdentity",
     "Admin",
-    
+
     # Content models
-    "Content", 
+    "Content",
     "ContentPrerequisite",
-    
+
     # Stage models
-    "Stage", 
-    "StageHint", 
-    "HintImage", 
-    "StagePuzzle", 
+    "Stage",
+    "StageHint",
+    "HintImage",
+    "StagePuzzle",
     "StageUnlock",
-    
+
     # NFC models
-    "NFCTag", 
+    "NFCTag",
     "NFCScanLog",
-    
+
     # Progress models
-    "UserContentProgress", 
-    "UserStageProgress", 
+    "UserContentProgress",
+    "UserStageProgress",
     "RewardLedger",
+
+    # <<<<<<<<<<<<<<<<<<< 추가된 부분 2 >>>>>>>>>>>>>>>>>>>>
+    # Store and Reward models
+    "Store",
+    "Reward",
+    "UserReward",
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>
 ]
