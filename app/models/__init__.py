@@ -30,7 +30,7 @@ from app.models.progress import (
 
 # 매장 및 리워드 모델
 from app.models.store import Store
-from app.models.reward import Reward, UserReward
+from app.models.reward import StoreReward
 
 # 모든 모델을 리스트로 정리 (Alembic 등에서 사용)
 __all__ = [
@@ -64,10 +64,7 @@ __all__ = [
     "UserStageProgress",
     "RewardLedger",
 
-    # <<<<<<<<<<<<<<<<<<< 추가된 부분 2 >>>>>>>>>>>>>>>>>>>>
     # Store and Reward models
     "Store",
-    "Reward",
-    "UserReward",
-    # <<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>
+    "StoreReward",
 ]
