@@ -18,13 +18,12 @@ router = APIRouter()
 
 def format_content_response(content: Content) -> ContentResponse:
     """Content 모델을 ContentResponse로 변환"""
-    # center_point가 geography 타입인 경우 좌표 추출
     center_point_dict = None
-    if content.center_point:
-        # PostGIS geography에서 좌표 추출 (실제 구현은 DB에 따라 다를 수 있음)
+    # PostGIS geography 타입에서 좌표를 안전하게 추출
+    if content.center_point and hasattr(content.center_point, 'longitude') and hasattr(content.center_point, 'latitude'):
         center_point_dict = {
-            "lon": float(content.center_point.longitude) if hasattr(content.center_point, 'longitude') else 0.0,
-            "lat": float(content.center_point.latitude) if hasattr(content.center_point, 'latitude') else 0.0
+            "lon": float(content.center_point.longitude),
+            "lat": float(content.center_point.latitude)
         }
     
     return ContentResponse(
@@ -32,6 +31,7 @@ def format_content_response(content: Content) -> ContentResponse:
         title=content.title,
         description=content.description,
         content_type=content.content_type,
+        exposure_type=content.exposure_type, # exposure_type 추가
         is_always_on=content.is_always_on,
         reward_coin=content.reward_coin,
         center_point=center_point_dict,
@@ -64,13 +64,16 @@ async def create_content(
             detail="Content type must be 'story' or 'domination'"
         )
     
-    # PostGIS POINT 생성을 위한 SQL
-    center_point_sql = text(f"ST_GeogFromText('POINT({content_data.center_point.lon} {content_data.center_point.lat})')")
+    # PostGIS POINT 생성을 위한 SQL (center_point가 None이 아닐 경우에만)
+    center_point_sql = None
+    if content_data.center_point:
+        center_point_sql = text(f"ST_GeogFromText('POINT({content_data.center_point.lon} {content_data.center_point.lat})')")
     
     content = Content(
         title=content_data.title,
         description=content_data.description,
         content_type=content_data.content_type,
+        exposure_type=content_data.exposure_type, # exposure_type 추가
         is_always_on=content_data.is_always_on,
         reward_coin=content_data.reward_coin,
         center_point=center_point_sql,
@@ -220,6 +223,7 @@ async def get_contents_admin(
     page: int = Query(1, ge=1, description="페이지 번호"),
     size: int = Query(20, ge=1, le=100, description="페이지 크기"),
     content_type: Optional[str] = Query(None, description="콘텐츠 타입 필터"),
+    exposure_type: Optional[str] = Query(None, description="노출 위치 필터: main|event_tab"), # exposure_type 추가
     status: Optional[str] = Query(None, description="상태 필터: open|closed"),
     search: Optional[str] = Query(None, description="제목 검색"),
     db: AsyncSession = Depends(get_db),
@@ -227,12 +231,6 @@ async def get_contents_admin(
 ):
     """
     관리자용 콘텐츠 목록 조회
-    
-    - **page**: 페이지 번호 (1부터 시작)
-    - **size**: 페이지 크기 (최대 100)
-    - **content_type**: story|domination 필터
-    - **status**: open|closed 상태 필터
-    - **search**: 제목 검색어
     """
     
     # 기본 쿼리
@@ -244,6 +242,9 @@ async def get_contents_admin(
     
     if content_type:
         conditions.append(Content.content_type == content_type)
+
+    if exposure_type: # exposure_type 필터 조건 추가
+        conditions.append(Content.exposure_type == exposure_type)
     
     if status == "open":
         conditions.append(Content.is_open == True)
@@ -331,7 +332,7 @@ async def delete_content(
             ref_content.next_content_id = None
     
     # 콘텐츠 삭제 (CASCADE로 연관 데이터들 자동 삭제됨)
-    await db.execute(delete(Content).where(Content.id == content_id))
+    await db.delete(content)
     await db.commit()
     
     return {"deleted": True, "content_id": content_id}

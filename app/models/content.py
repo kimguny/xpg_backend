@@ -21,6 +21,11 @@ class Content(Base):
     
     # 콘텐츠 유형 (story|domination)
     content_type = Column(Text, nullable=False)
+
+    # <<<<<<<<<<<<<<<<<<< 수정된 부분 1 >>>>>>>>>>>>>>>>>>>>
+    # 노출 위치 (main|event_tab 등)
+    exposure_type = Column(Text, nullable=False, default='main', server_default='main')
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>
     
     # 기간 설정
     start_at = Column(DateTime(timezone=True), nullable=True)
@@ -57,6 +62,10 @@ class Content(Base):
         CheckConstraint(
             "content_type IN ('story', 'domination')",
             name="contents_content_type_chk"
+        ),
+        CheckConstraint(
+            "exposure_type IN ('main', 'event_tab')",
+            name="contents_exposure_type_chk"
         ),
         # 스테이지 수 범위 검증
         CheckConstraint(
