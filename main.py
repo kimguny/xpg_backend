@@ -11,7 +11,7 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="XPG API - 관리자용 API 및 사용자 앱 API",
-    docs_url="/docs" if settings.DEBUG else None,  # 프로덕션에서는 문서 비활성화
+    docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
@@ -26,7 +26,7 @@ app.add_middleware(
 
 # 신뢰할 수 있는 호스트 미들웨어 (보안)
 app.add_middleware(
-    TrustedHostMiddleware, 
+    TrustedHostMiddleware,
     allowed_hosts=["*"] if settings.DEBUG else ["api.xpg.example.com", "localhost"]
 )
 
@@ -35,14 +35,13 @@ app.add_middleware(
 async def startup_event():
     """앱 시작 시 실행할 초기화 작업"""
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    
-    # 데이터베이스 연결 확인
+
     db_connected = await check_db_connection()
     if not db_connected:
         print("Database connection failed!")
     else:
         print("Database connected successfully")
-    
+
     if settings.DEBUG:
         await init_db()
 
@@ -70,7 +69,7 @@ async def root():
 async def health_check():
     """시스템 상태 확인"""
     db_healthy = await check_db_connection()
-    
+
     return {
         "status": "healthy" if db_healthy else "unhealthy",
         "database": "connected" if db_healthy else "disconnected",
@@ -83,14 +82,14 @@ async def health_check():
 from app.api.admin import admin_router
 from app.api.v1 import v1_router
 
-# admin_router에도 prefix와 tags를 추가하여 API 경로를 일관성 있게 만듭니다.
-app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin"])
-app.include_router(v1_router, prefix="/api/v1", tags=["App"])
+# 각 라우터가 자체 prefix를 가지고 있으므로, 여기서는 단순히 포함만 시켜줍니다.
+app.include_router(admin_router)
+app.include_router(v1_router)
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
