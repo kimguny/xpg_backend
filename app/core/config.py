@@ -18,7 +18,8 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "http://localhost:3001",
         "http://121.126.223.205",
-        "https://121.126.223.205"
+        "https://121.126.223.205",
+        "http://121.126.223.205:3000"
     ]
     
     # 데이터베이스 설정 (실제 XPG 서버)
