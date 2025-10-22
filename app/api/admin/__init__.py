@@ -12,7 +12,7 @@ from .rewards import router as rewards_router
 
 # 관리자 API 메인 라우터 설정 (기존과 동일)
 admin_router = APIRouter(
-    prefix="api/v1/admin",
+    prefix="/api/v1/admin",
     tags=["admin"],
     responses={
         401: {"description": "Unauthorized - 인증 필요"},
