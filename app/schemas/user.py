@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
 from app.schemas.common import MetaSchema
 
@@ -32,7 +33,7 @@ class UserResponse(BaseModel):
     """사용자 응답 스키마"""
     model_config = ConfigDict(from_attributes=True)
     
-    id: str
+    id: UUID
     login_id: str
     email: Optional[str] = None
     nickname: Optional[str] = None
@@ -53,7 +54,7 @@ class UserSummary(BaseModel):
     """사용자 요약 정보"""
     model_config = ConfigDict(from_attributes=True)
     
-    id: str
+    id: UUID
     login_id: str
     nickname: Optional[str] = None
     status: str
