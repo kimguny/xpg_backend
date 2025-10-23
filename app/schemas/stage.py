@@ -64,8 +64,6 @@ class StageResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
     created_at: datetime
-    hint_count: int = 0
-    puzzle_count: int = 0
 
 class HintCreate(BaseModel):
     """힌트 생성 요청"""

@@ -67,37 +67,17 @@ async def get_stages_by_content(
     current_admin = Depends(get_current_admin)
 ):
     """
-    특정 콘텐츠에 속한 모든 스테이지 목록을 조회합니다. (힌트/퍼즐 개수 포함)
+    특정 콘텐츠에 속한 모든 스테이지 목록을 조회합니다.
     """
     result = await db.execute(
         select(Stage)
         .where(Stage.content_id == content_id)
-        .order_by(Stage.stage_no)
+        .order_by(Stage.stage_no)  # stage_no 순서로 정렬
     )
     stages = result.scalars().all()
 
-    response_list = []
-    for stage in stages:
-        # 힌트 개수를 셉니다.
-        hint_count_result = await db.execute(
-            select(func.count(StageHint.id)).where(StageHint.stage_id == stage.id)
-        )
-        hint_count = hint_count_result.scalar_one()
-
-        # 퍼즐 개수를 셉니다.
-        puzzle_count_result = await db.execute(
-            select(func.count(StagePuzzle.id)).where(StagePuzzle.stage_id == stage.id)
-        )
-        puzzle_count = puzzle_count_result.scalar_one()
-
-        # 기본 응답 데이터를 생성하고, 개수 정보를 추가합니다.
-        stage_response_data = format_stage_response(stage).model_dump()
-        stage_response_data['hint_count'] = hint_count
-        stage_response_data['puzzle_count'] = puzzle_count
-
-        response_list.append(StageResponse(**stage_response_data))
-
-    return response_list
+    # 각 Stage 객체를 StageResponse 형태로 변환하여 리스트로 반환
+    return [format_stage_response(stage) for stage in stages]
 
 @router.post("", response_model=StageResponse)
 async def create_stage(
