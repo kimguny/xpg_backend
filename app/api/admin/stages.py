@@ -249,6 +249,59 @@ async def get_stage(
     
     return format_stage_response(stage)
 
+@router.get("/{stage_id}/hints", response_model=List[HintResponse])
+async def get_hints_by_stage(
+    stage_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin = Depends(get_current_admin)
+):
+    """
+    특정 스테이지에 속한 모든 힌트 목록을 조회합니다.
+    """
+    # 힌트 목록을 order_no 순서로 가져옵니다.
+    result = await db.execute(
+        select(StageHint)
+        .where(StageHint.stage_id == stage_id)
+        .order_by(StageHint.order_no)
+    )
+    hints = result.scalars().all()
+
+    response_list = []
+    for hint in hints:
+        # 각 힌트에 연결된 NFC 태그 정보를 가져옵니다.
+        nfc_info = None
+        if hint.nfc_id:
+            nfc_result = await db.execute(select(NFCTag).where(NFCTag.id == hint.nfc_id))
+            nfc_tag = nfc_result.scalar_one_or_none()
+            if nfc_tag:
+                nfc_info = {
+                    "id": str(nfc_tag.id),
+                    "udid": nfc_tag.udid,
+                    "tag_name": nfc_tag.tag_name
+                }
+        
+        # 각 힌트에 연결된 이미지 정보를 가져옵니다.
+        images_result = await db.execute(select(HintImage).where(HintImage.hint_id == hint.id).order_by(HintImage.order_no))
+        images = images_result.scalars().all()
+        image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in images]
+
+        # 최종 응답 객체를 만듭니다.
+        response_list.append(HintResponse(
+            id=str(hint.id),
+            stage_id=str(hint.stage_id),
+            preset=hint.preset,
+            order_no=hint.order_no,
+            text_block_1=hint.text_block_1,
+            text_block_2=hint.text_block_2,
+            text_block_3=hint.text_block_3,
+            cooldown_sec=hint.cooldown_sec,
+            reward_coin=hint.reward_coin,
+            nfc=nfc_info,
+            images=image_list
+        ))
+        
+    return response_list
+
 @router.post("/{stage_id}/hints", response_model=HintResponse)
 async def create_hint(
     stage_id: str,
