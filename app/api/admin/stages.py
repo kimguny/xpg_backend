@@ -209,6 +209,26 @@ async def update_stage(
     
     return format_stage_response(stage)
 
+@router.get("/{stage_id}", response_model=StageResponse)
+async def get_stage(
+    stage_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin = Depends(get_current_admin)
+):
+    """
+    ID로 특정 스테이지의 상세 정보를 조회합니다.
+    """
+    result = await db.execute(select(Stage).where(Stage.id == stage_id))
+    stage = result.scalar_one_or_none()
+    
+    if not stage:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stage not found"
+        )
+    
+    return format_stage_response(stage)
+
 @router.post("/{stage_id}/hints", response_model=HintResponse)
 async def create_hint(
     stage_id: str,
