@@ -60,6 +60,25 @@ def format_stage_response(stage: Stage) -> StageResponse:
         created_at=stage.created_at
     )
 
+@router.get("/by-content/{content_id}", response_model=List[StageResponse])
+async def get_stages_by_content(
+    content_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin = Depends(get_current_admin)
+):
+    """
+    특정 콘텐츠에 속한 모든 스테이지 목록을 조회합니다.
+    """
+    result = await db.execute(
+        select(Stage)
+        .where(Stage.content_id == content_id)
+        .order_by(Stage.stage_no)  # stage_no 순서로 정렬
+    )
+    stages = result.scalars().all()
+
+    # 각 Stage 객체를 StageResponse 형태로 변환하여 리스트로 반환
+    return [format_stage_response(stage) for stage in stages]
+
 @router.post("", response_model=StageResponse)
 async def create_stage(
     content_id: str,
