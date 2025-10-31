@@ -34,7 +34,6 @@ async def send_temp_password_email(
     <body>
         <p>안녕하세요, {nickname or 'XPG 회원'}님.</p>
         <p>요청하신 임시 비밀번호가 발급되었습니다.</p>
-        <p>아래 비밀번호로 로그인하신 후, 즉시 '내 정보 수정'에서 새 비밀번호로 변경해 주세요.</p>
         <br>
         <p style="font-size: 24px; font-weight: bold; color: #333;">
             {temp_password}
