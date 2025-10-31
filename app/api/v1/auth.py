@@ -60,6 +60,7 @@ async def _create_user(register_request: RegisterRequest, db: AsyncSession) -> U
     user = User(
         login_id=register_request.loginId,
         email=register_request.email,
+        nickname=register_request.nickname,
         status='active',
         email_verified=False
     )
@@ -91,6 +92,7 @@ async def register(
     - **loginId**: 로그인 ID (3~30자, [A-Za-z0-9._-])
     - **email**: 이메일 주소
     - **password**: 비밀번호 (8자 이상)
+    - **nickname**: 닉네임
     
     새 사용자 계정을 생성합니다.
     """
@@ -105,6 +107,7 @@ async def register(
             "id": str(user.id),
             "loginId": user.login_id,
             "email": user.email,
+            "nickname": user.nickname,
             "emailVerified": user.email_verified
         }
     )
