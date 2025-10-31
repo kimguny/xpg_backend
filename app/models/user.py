@@ -32,6 +32,9 @@ class User(Base):
     
     # 프로필 (자유 확장)
     profile = Column(JSONB, nullable=True)
+
+    # 프로필 이미지 URL
+    profile_image_url = Column(Text, nullable=True)
     
     # 타임스탬프
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

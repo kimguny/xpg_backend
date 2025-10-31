@@ -33,16 +33,40 @@ async def update_my_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """내 프로필 수정"""
-    if profile_update.nickname is not None:
-        current_user.nickname = profile_update.nickname
+    """내 프로필 수정 (닉네임, 이메일, 프로필 이미지 URL, 프로필 JSON)"""
     
-    if profile_update.profile is not None:
-        # 기존 profile과 병합
+    update_data = profile_update.model_dump(exclude_unset=True)
+    
+    # 1. 이메일 변경 시 중복 검사
+    new_email = update_data.get("email")
+    if new_email and new_email != current_user.email:
+        existing_email = await db.execute(
+            select(User).where(User.email == new_email)
+        )
+        if existing_email.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already exists"
+            )
+        # 이메일이 변경되면 인증 상태 초기화
+        current_user.email = new_email
+        current_user.email_verified = False
+        current_user.email_verified_at = None
+
+    # 2. 닉네임 변경
+    if "nickname" in update_data:
+        current_user.nickname = update_data["nickname"]
+
+    # 3. 프로필 이미지 URL 변경
+    if "profile_image_url" in update_data:
+        current_user.profile_image_url = update_data["profile_image_url"]
+
+    # 4. 프로필 JSON 데이터 병합
+    if "profile" in update_data and update_data["profile"] is not None:
         if current_user.profile:
-            current_user.profile.update(profile_update.profile)
+            current_user.profile.update(update_data["profile"])
         else:
-            current_user.profile = profile_update.profile
+            current_user.profile = update_data["profile"]
     
     try:
         await db.commit()

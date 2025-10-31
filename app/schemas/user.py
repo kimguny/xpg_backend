@@ -19,7 +19,9 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     """사용자 수정 스키마 (일반 사용자용)"""
-    nickname: Optional[str] = Field(None, description="표시명")
+    nickname: Optional[str] = Field(None, description="닉네임")
+    email: Optional[str] = Field(None, description="이메일")
+    profile_image_url: Optional[str] = Field(None, description="프로필 이미지 URL")
     profile: Optional[Dict[str, Any]] = Field(None, description="프로필 정보")
 
 
@@ -37,6 +39,7 @@ class UserResponse(BaseModel):
     login_id: str
     email: Optional[str] = None
     nickname: Optional[str] = None
+    profile_image_url: Optional[str] = None
     email_verified: bool = False
     email_verified_at: Optional[datetime] = None
     status: str
