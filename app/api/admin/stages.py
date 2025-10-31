@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, text, and_, func
+from sqlalchemy import select, delete, text, and_
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
@@ -209,7 +210,7 @@ async def update_stage(
     
     return format_stage_response(stage)
 
-@router.get("/{stage_id}", response_model=StageResponse)
+@router.get("/{stage_id}", response_model=StageDetailResponse)  # ◀◀◀ [수정] StageResponse -> StageDetailResponse
 async def get_stage(
     stage_id: str,
     db: AsyncSession = Depends(get_db),
@@ -217,8 +218,26 @@ async def get_stage(
 ):
     """
     ID로 특정 스테이지의 상세 정보를 조회합니다.
+    (힌트, 퍼즐, 해금 설정 포함)
     """
-    result = await db.execute(select(Stage).where(Stage.id == stage_id))
+    
+    # ◀◀◀ [수정] 쿼리에 selectinload 옵션 추가
+    stmt = (
+        select(Stage)
+        .where(Stage.id == stage_id)
+        .options(
+            # 힌트 로드 > 힌트의 NFC 로드, 힌트의 이미지 로드
+            selectinload(Stage.hints).options(
+                selectinload(StageHint.nfc),
+                selectinload(StageHint.images)
+            ),
+            # 퍼즐 로드
+            selectinload(Stage.puzzles),
+            # 해금 설정 로드
+            selectinload(Stage.unlocks)
+        )
+    )
+    result = await db.execute(stmt)
     stage = result.scalar_one_or_none()
     
     if not stage:
@@ -227,7 +246,93 @@ async def get_stage(
             detail="Stage not found"
         )
     
-    return format_stage_response(stage)
+    # ◀◀◀ [추가] StageDetailResponse에 맞게 힌트, 퍼즐, 해금 설정 포맷팅
+
+    # 1. 힌트 포맷팅 (get_hints_by_stage 로직 재사용)
+    hints_response = []
+    if stage.hints:
+        # 힌트를 order_no 순서로 정렬
+        sorted_hints = sorted(stage.hints, key=lambda h: h.order_no)
+        for hint in sorted_hints:
+            nfc_info = None
+            if hint.nfc:  # Eager Loading으로 .nfc 바로 접근
+                nfc_info = {
+                    "id": str(hint.nfc.id),
+                    "udid": hint.nfc.udid,
+                    "tag_name": hint.nfc.tag_name
+                }
+            
+            image_list = []
+            if hint.images: # Eager Loading으로 .images 바로 접근
+                # 이미지 order_no 순서로 정렬
+                sorted_images = sorted(hint.images, key=lambda img: img.order_no)
+                image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in sorted_images]
+
+            hints_response.append(HintResponse(
+                id=str(hint.id),
+                stage_id=str(hint.stage_id),
+                preset=hint.preset,
+                order_no=hint.order_no,
+                text_block_1=hint.text_block_1,
+                text_block_2=hint.text_block_2,
+                text_block_3=hint.text_block_3,
+                cooldown_sec=hint.cooldown_sec,
+                reward_coin=hint.reward_coin,
+                nfc=nfc_info,
+                images=image_list
+            ))
+
+    # 2. 퍼즐 포맷팅 (puzzles가 리스트라고 가정)
+    puzzles_response = []
+    if stage.puzzles:
+        puzzles_response = [
+            {
+                "id": str(puzzle.id), 
+                "style": puzzle.puzzle_style,
+                "showWhen": puzzle.show_when, # 스키마는 show_when이지만 모델은 show_when (확인 필요)
+                "config": puzzle.config
+            } for puzzle in stage.puzzles
+        ]
+
+    # 3. 해금 설정 포맷팅 (하나만 존재한다고 가정)
+    unlock_config_response = None
+    if stage.unlocks:
+        unlock = stage.unlocks[0] # 첫 번째 해금 설정을 사용
+        unlock_config_response = {
+            "preset": unlock.unlock_preset,
+            "next_action": unlock.next_action,
+            "image_url": unlock.image_url,
+            "bottom_text": unlock.bottom_text
+        }
+    
+    # 4. 최종 StageDetailResponse 반환
+    return StageDetailResponse(
+        id=str(stage.id),
+        content_id=str(stage.content_id),
+        parent_stage_id=str(stage.parent_stage_id) if stage.parent_stage_id else None,
+        stage_no=stage.stage_no,
+        title=stage.title,
+        description=stage.description,
+        start_button_text=stage.start_button_text,
+        uses_nfc=stage.uses_nfc,
+        is_hidden=stage.is_hidden,
+        time_limit_min=stage.time_limit_min,
+        clear_need_nfc_count=stage.clear_need_nfc_count,
+        clear_time_attack_sec=stage.clear_time_attack_sec,
+        location=format_location(stage),
+        unlock_on_enter_radius=stage.unlock_on_enter_radius,
+        is_open=stage.is_open,
+        unlock_stage_id=str(stage.unlock_stage_id) if stage.unlock_stage_id else None,
+        background_image_url=stage.background_image_url,
+        thumbnail_url=stage.thumbnail_url,
+        meta=stage.meta,
+        created_at=stage.created_at,
+        
+        # 연관 데이터 추가
+        hints=hints_response,
+        puzzles=puzzles_response,
+        unlock_config=unlock_config_response
+    )
 
 @router.get("/{stage_id}/hints", response_model=List[HintResponse])
 async def get_hints_by_stage(
