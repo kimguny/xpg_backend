@@ -167,3 +167,52 @@ async def get_my_rewards(
         size=size,
         total=total
     )
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    회원 탈퇴
+    """
+    
+    # 1. 연결된 모든 AuthIdentity 조회
+    result = await db.execute(
+        select(AuthIdentity).where(AuthIdentity.user_id == current_user.id)
+    )
+    identities = result.scalars().all()
+    
+    anonymized_id = f"deleted_{current_user.id}"
+
+    # 2. AuthIdentity 비식별화 (민감 정보 제거)
+    for identity in identities:
+        identity.provider_user_id = anonymized_id
+        identity.password_hash = None
+        identity.password_algo = None
+        identity.meta = None
+
+    # 3. User 모델 비식별화 (개인 식별 정보 제거)
+    current_user.login_id = anonymized_id
+    current_user.email = None
+    current_user.nickname = None
+    # 'profile_image_url' 컬럼이 DB에 추가되었으므로 함께 비식별화
+    if hasattr(current_user, 'profile_image_url'):
+        current_user.profile_image_url = None 
+    current_user.profile = None
+    current_user.email_verified = False
+    current_user.email_verified_at = None
+    
+    # 4. 상태를 'deleted'로 변경 (소프트 삭제)
+    current_user.status = 'deleted'
+
+    try:
+        await db.commit()
+        # 204 No Content는 본문을 반환하지 않습니다.
+        return
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete account: {e}"
+        )
