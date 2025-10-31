@@ -25,6 +25,7 @@ from app.schemas.auth import (
     RegisterResponse,
     PasswordResetRequest
 )
+from app.core.email import send_temp_password_email
 
 router = APIRouter()
 
@@ -354,11 +355,11 @@ async def request_password_reset(
                 await db.commit()
                 
                 # 7. [구현 필요] 사용자 이메일로 임시 비밀번호(원본) 발송
-                # (예: await send_temp_password_email(user.email, user.nickname, temp_password))
-                
-                # (디버깅용 - 실제 배포 시 아래 2줄 삭제)
-                print(f"--- DEBUG: Temp Password for {user.email} ---")
-                print(temp_password)
+                await send_temp_password_email(
+                    email_to=user.email,
+                    nickname=user.nickname,
+                    temp_password=temp_password
+                )
 
             except Exception as e:
                 await db.rollback()
