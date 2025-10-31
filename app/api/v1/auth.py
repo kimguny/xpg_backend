@@ -1,3 +1,5 @@
+import secrets
+import string
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -20,7 +22,8 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     TokenResponse,
     RegisterRequest,
-    RegisterResponse
+    RegisterResponse,
+    PasswordResetRequest
 )
 
 router = APIRouter()
@@ -299,3 +302,70 @@ async def login_for_docs(
         password=form_data.password
     )
     return await login(login_request, db)
+
+def _generate_random_password(length: int = 8) -> str:
+    """영문 대소문자, 숫자를 포함한 랜덤 8자리 비밀번호 생성"""
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        password = ''.join(secrets.choice(alphabet) for i in range(length))
+        # 최소 1개 이상의 대문자, 소문자, 숫자가 포함되도록 보장
+        if (any(c.islower() for c in password)
+                and any(c.isupper() for c in password)
+                and any(c.isdigit() for c in password)):
+            return password
+        
+@router.post("/password/forgot")
+async def request_password_reset(
+    reset_request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    비밀번호 초기화 요청 (임시 비밀번호 발급 및 이메일 전송)
+    """
+    
+    # 1. 사용자 조회 (loginId 또는 email로)
+    user_query = select(User).where(
+        (User.login_id == reset_request.idOrEmail) | 
+        (User.email == reset_request.idOrEmail)
+    )
+    result = await db.execute(user_query)
+    user = result.scalar_one_or_none()
+    
+    # 2. 사용자가 존재하고, 이메일이 등록되어 있으면
+    if user and user.email:
+        # 3. 사용자의 'local' 인증 정보 조회
+        result = await db.execute(
+            select(AuthIdentity).where(
+                AuthIdentity.user_id == user.id,
+                AuthIdentity.provider == "local"
+            )
+        )
+        auth_identity = result.scalar_one_or_none()
+        
+        # 4. 로컬 계정이 있는 경우에만 임시 비밀번호 발급
+        if auth_identity:
+            # 5. 새 8자리 랜덤 비밀번호 생성
+            temp_password = _generate_random_password()
+            
+            # 6. 새 비밀번호를 해싱하여 DB에 업데이트
+            auth_identity.password_hash = get_password_hash(temp_password)
+            
+            try:
+                await db.commit()
+                
+                # 7. [구현 필요] 사용자 이메일로 임시 비밀번호(원본) 발송
+                # (예: await send_temp_password_email(user.email, user.nickname, temp_password))
+                
+                # (디버깅용 - 실제 배포 시 아래 2줄 삭제)
+                print(f"--- DEBUG: Temp Password for {user.email} ---")
+                print(temp_password)
+
+            except Exception as e:
+                await db.rollback()
+                # (이메일 전송 실패 또는 DB 오류 시에도, 
+                # 사용자에게는 성공한 것처럼 응답하여 정보 유출 방지)
+                pass 
+
+    # 8. 계정 존재 여부와 관계없이 항상 동일한 성공 메시지 반환
+    # (이메일 열거 공격 방지)
+    return {"message": "If an account exists, a temporary password has been sent."}
