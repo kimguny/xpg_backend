@@ -1,13 +1,14 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_current_admin, PaginationParams
-from app.models import User, Admin
+from app.models import User, Admin, RewardLedger
 from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserResponse, UserUpdateRequest
+from app.schemas.user import UserResponse, UserUpdateRequest, PointAdjustRequest
+from app.schemas.progress import RewardHistoryItem
 
 router = APIRouter()
 
@@ -153,3 +154,48 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     return UserResponse.model_validate(user)
+
+@router.post("/users/{user_id}/adjust-points", response_model=RewardHistoryItem)
+async def adjust_user_points(
+    user_id: str,
+    request: PointAdjustRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin)
+):
+    """
+    사용자 포인트 수동 조정 (관리자 전용)
+
+    - **coin_delta**: 지급할 포인트 (양수) 또는 회수할 포인트 (음수)
+    - **note**: 조정 사유 (rewards_ledger에 기록됨)
+    """
+    
+    # 1. 사용자 조회
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. RewardLedger에 기록 생성
+    new_ledger_entry = RewardLedger(
+        user_id=user.id,
+        coin_delta=request.coin_delta,
+        note=request.note
+        # content_id, stage_id 등은 None (관리자 수동 조정이므로)
+    )
+    
+    db.add(new_ledger_entry)
+    
+    try:
+        await db.commit()
+        await db.refresh(new_ledger_entry)
+        
+        # 생성된 보상 내역 반환
+        return RewardHistoryItem.model_validate(new_ledger_entry)
+    
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to adjust points: {e}"
+        )

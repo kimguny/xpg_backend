@@ -113,3 +113,8 @@ class UserStatsResponse(BaseModel):
     new_users_today: int
     new_users_this_week: int
     new_users_this_month: int
+
+class PointAdjustRequest(BaseModel):
+    """관리자용 포인트 조정 요청"""
+    coin_delta: int = Field(..., description="조정할 포인트 값 (양수=지급, 음수=회수)")
+    note: str = Field(..., min_length=1, max_length=100, description="조정 사유 (예: '관리자 지급')")
