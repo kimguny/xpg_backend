@@ -39,6 +39,7 @@ class User(Base):
     # 타임스탬프
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_active_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     
     # 제약조건
     __table_args__ = (

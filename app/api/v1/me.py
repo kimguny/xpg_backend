@@ -174,37 +174,16 @@ async def delete_my_account(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    회원 탈퇴
+    회원 탈퇴 요청 (30일 유예 소프트 삭제)
+    - status를 'deleted'로, deleted_at을 현재 시간으로 설정합니다.
+    - 실제 데이터 삭제는 30일 후 스케줄러가 처리합니다.
     """
     
-    # 1. 연결된 모든 AuthIdentity 조회
-    result = await db.execute(
-        select(AuthIdentity).where(AuthIdentity.user_id == current_user.id)
-    )
-    identities = result.scalars().all()
-    
-    anonymized_id = f"deleted_{current_user.id}"
-
-    # 2. AuthIdentity 비식별화 (민감 정보 제거)
-    for identity in identities:
-        identity.provider_user_id = anonymized_id
-        identity.password_hash = None
-        identity.password_algo = None
-        identity.meta = None
-
-    # 3. User 모델 비식별화 (개인 식별 정보 제거)
-    current_user.login_id = anonymized_id
-    current_user.email = None
-    current_user.nickname = None
-    # 'profile_image_url' 컬럼이 DB에 추가되었으므로 함께 비식별화
-    if hasattr(current_user, 'profile_image_url'):
-        current_user.profile_image_url = None 
-    current_user.profile = None
-    current_user.email_verified = False
-    current_user.email_verified_at = None
-    
-    # 4. 상태를 'deleted'로 변경 (소프트 삭제)
+    # 1. User 모델의 status와 deleted_at만 업데이트
     current_user.status = 'deleted'
+    current_user.deleted_at = func.now() # (DB 서버 시간 기준)
+    
+    # 2. login_id, email 등은 30일간 그대로 둡니다. (재가입 방지)
 
     try:
         await db.commit()
@@ -214,5 +193,5 @@ async def delete_my_account(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete account: {e}"
+            detail=f"Failed to request account deletion: {e}"
         )
