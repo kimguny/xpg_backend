@@ -61,7 +61,7 @@ def format_stage_response(stage: Stage) -> StageResponse:
         created_at=stage.created_at
     )
 
-@router.get("/by-content/{content_id}", response_model=List[StageResponse])
+@router.get("/by-content/{content_id}", response_model=List[StageDetailResponse]) # [1. 수정] StageResponse -> StageDetailResponse
 async def get_stages_by_content(
     content_id: str,
     db: AsyncSession = Depends(get_db),
@@ -69,16 +69,88 @@ async def get_stages_by_content(
 ):
     """
     특정 콘텐츠에 속한 모든 스테이지 목록을 조회합니다.
+    (힌트, 퍼즐, 해금 설정 포함)
     """
-    result = await db.execute(
+    
+    # [2. 수정] 쿼리에 selectinload 옵션 추가 (Eager Loading)
+    stmt = (
         select(Stage)
         .where(Stage.content_id == content_id)
-        .order_by(Stage.stage_no)  # stage_no 순서로 정렬
+        .options(
+            # 힌트 로드 > 힌트의 NFC 로드, 힌트의 이미지 로드
+            selectinload(Stage.hints).options(
+                selectinload(StageHint.nfc),
+                selectinload(StageHint.images)
+            ),
+            # 퍼즐 로드
+            selectinload(Stage.puzzles),
+            # 해금 설정 로드
+            selectinload(Stage.unlocks)
+        )
+        .order_by(Stage.stage_no)
     )
-    stages = result.scalars().all()
+    result = await db.execute(stmt)
+    # .unique()를 추가하여 중복 방지
+    stages = result.scalars().unique().all()
 
-    # 각 Stage 객체를 StageResponse 형태로 변환하여 리스트로 반환
-    return [format_stage_response(stage) for stage in stages]
+    # [3. 수정] 반환 로직을 StageDetailResponse에 맞게 수정
+    response_list = []
+    for stage in stages:
+        # --- 힌트 포맷팅 (get_stage 함수 로직 재사용) ---
+        hints_response = []
+        if stage.hints:
+            sorted_hints = sorted(stage.hints, key=lambda h: h.order_no)
+            for hint in sorted_hints:
+                nfc_info = None
+                if hint.nfc:
+                    nfc_info = {"id": str(hint.nfc.id), "udid": hint.nfc.udid, "tag_name": hint.nfc.tag_name}
+                
+                image_list = []
+                if hint.images:
+                    sorted_images = sorted(hint.images, key=lambda img: img.order_no)
+                    image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in sorted_images]
+
+                hints_response.append(HintResponse(
+                    id=str(hint.id), stage_id=str(hint.stage_id), preset=hint.preset, order_no=hint.order_no,
+                    text_block_1=hint.text_block_1, text_block_2=hint.text_block_2, text_block_3=hint.text_block_3,
+                    cooldown_sec=hint.cooldown_sec, reward_coin=hint.reward_coin, nfc=nfc_info, images=image_list
+                ))
+
+        # --- 퍼즐 포맷팅 ---
+        puzzles_response = []
+        if stage.puzzles:
+            puzzles_response = [
+                {"id": str(p.id), "style": p.puzzle_style, "showWhen": p.show_when, "config": p.config} 
+                for p in stage.puzzles
+            ]
+
+        # --- 해금 설정 포맷팅 ---
+        unlock_config_response = None
+        if stage.unlocks:
+            unlock = stage.unlocks[0]
+            unlock_config_response = {
+                "preset": unlock.unlock_preset, "next_action": unlock.next_action,
+                "image_url": unlock.image_url, "bottom_text": unlock.bottom_text
+            }
+
+        # --- 최종 StageDetailResponse 생성 ---
+        response_list.append(StageDetailResponse(
+            id=str(stage.id), content_id=str(stage.content_id), parent_stage_id=str(stage.parent_stage_id) if stage.parent_stage_id else None,
+            stage_no=stage.stage_no, title=stage.title, description=stage.description, start_button_text=stage.start_button_text,
+            uses_nfc=stage.uses_nfc, is_hidden=stage.is_hidden, time_limit_min=stage.time_limit_min,
+            clear_need_nfc_count=stage.clear_need_nfc_count, clear_time_attack_sec=stage.clear_time_attack_sec,
+            location=format_location(stage), unlock_on_enter_radius=stage.unlock_on_enter_radius,
+            is_open=stage.is_open, unlock_stage_id=str(stage.unlock_stage_id) if stage.unlock_stage_id else None,
+            background_image_url=stage.background_image_url, thumbnail_url=stage.thumbnail_url,
+            meta=stage.meta, created_at=stage.created_at,
+            
+            # 연관 데이터 포함
+            hints=hints_response,
+            puzzles=puzzles_response,
+            unlock_config=unlock_config_response
+        ))
+        
+    return response_list
 
 @router.post("", response_model=StageResponse)
 async def create_stage(
