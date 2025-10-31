@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     MAIL_FROM: str = ""
     MAIL_PORT: int = 587
     MAIL_SERVER: str = "smtp.gmail.com"
-    MAIL_TLS: bool = True
-    MAIL_SSL: bool = False
+    MAIL_STARTTLS: bool = True
+    MAIL_SSL_TLS: bool = False
     
     # OAuth 설정 (향후 확장)
     GOOGLE_CLIENT_ID: str = ""
