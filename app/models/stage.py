@@ -209,6 +209,7 @@ class StageUnlock(Base):
     next_action = Column(Text, nullable=False)    # next_step|next_stage
     
     # 표시 내용
+    title = Column(Text, nullable=True)
     image_url = Column(Text, nullable=True)
     bottom_text = Column(Text, nullable=True)
     

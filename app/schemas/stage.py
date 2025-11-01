@@ -102,6 +102,7 @@ class UnlockConfig(BaseModel):
     """해금 연출 설정"""
     preset: str = Field(..., description="프리셋: fullscreen|popup")
     next_action: str = Field(..., description="다음 액션: next_step|next_stage")
+    title: Optional[str] = Field(None, description="서브 타이틀")
     image_url: Optional[str] = Field(None, description="이미지 URL")
     bottom_text: Optional[str] = Field(None, description="하단 텍스트")
 

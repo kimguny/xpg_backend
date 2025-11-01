@@ -373,6 +373,7 @@ async def get_stage(
         unlock_config_response = {
             "preset": unlock.unlock_preset,
             "next_action": unlock.next_action,
+            "title": unlock.title,
             "image_url": unlock.image_url,
             "bottom_text": unlock.bottom_text
         }
@@ -667,6 +668,7 @@ async def update_unlock_config(
         stage_id=stage_id,
         unlock_preset=unlock_data.preset,
         next_action=unlock_data.next_action,
+        title=unlock_data.title,
         image_url=unlock_data.image_url,
         bottom_text=unlock_data.bottom_text
     )
