@@ -322,6 +322,7 @@ async def request_password_reset(
 ):
     """
     비밀번호 초기화 요청 (임시 비밀번호 발급 및 이메일 전송)
+    [수정됨] 성공/실패 여부를 명확히 반환합니다.
     """
     
     # 1. 사용자 조회 (loginId 또는 email로)
@@ -332,41 +333,48 @@ async def request_password_reset(
     result = await db.execute(user_query)
     user = result.scalar_one_or_none()
     
-    # 2. 사용자가 존재하고, 이메일이 등록되어 있으면
-    if user and user.email:
-        # 3. 사용자의 'local' 인증 정보 조회
-        result = await db.execute(
-            select(AuthIdentity).where(
-                AuthIdentity.user_id == user.id,
-                AuthIdentity.provider == "local"
-            )
-        )
-        auth_identity = result.scalar_one_or_none()
+    # 2. [수정] 사용자가 존재하지 않는 경우
+    if not user:
+        return {"message": "존재하지않는 아이디 또는 이메일입니다."}
+
+    # 3. [수정] 사용자는 있으나, 이메일이 등록되지 않은 경우
+    if not user.email:
+        return {"message": "계정에 이메일이 등록되어 있지 않아 전송할 수 없습니다."}
         
-        # 4. 로컬 계정이 있는 경우에만 임시 비밀번호 발급
-        if auth_identity:
-            # 5. 새 8자리 랜덤 비밀번호 생성
-            temp_password = _generate_random_password()
-            
-            # 6. 새 비밀번호를 해싱하여 DB에 업데이트
-            auth_identity.password_hash = get_password_hash(temp_password)
-            
-            try:
-                await db.commit()
-                
-                # 7. [구현 필요] 사용자 이메일로 임시 비밀번호(원본) 발송
-                await send_temp_password_email(
-                    email_to=user.email,
-                    nickname=user.nickname,
-                    temp_password=temp_password
-                )
+    # 4. 사용자의 'local' 인증 정보 조회
+    result = await db.execute(
+        select(AuthIdentity).where(
+            AuthIdentity.user_id == user.id,
+            AuthIdentity.provider == "local"
+        )
+    )
+    auth_identity = result.scalar_one_or_none()
+    
+    # 5. [수정] 로컬 계정이 아닌 경우 (예: 소셜 로그인 전용)
+    if not auth_identity:
+        return {"message": "소셜 로그인 계정은 비밀번호를 초기화할 수 없습니다."}
+        
+    # 6. 모든 조건 통과: 임시 비밀번호 발급
+    temp_password = _generate_random_password()
+    
+    # 7. 새 비밀번호를 해싱하여 DB에 업데이트
+    auth_identity.password_hash = get_password_hash(temp_password)
+    
+    try:
+        await db.commit()
+        
+        # 8. 사용자 이메일로 임시 비밀번호(원본) 발송
+        await send_temp_password_email(
+            email_to=user.email,
+            nickname=user.nickname,
+            temp_password=temp_password
+        )
+        
+        # 9. [수정] 전송 성공
+        return {"message": "임시비밀번호를 전송하였습니다"}
 
-            except Exception as e:
-                await db.rollback()
-                # (이메일 전송 실패 또는 DB 오류 시에도, 
-                # 사용자에게는 성공한 것처럼 응답하여 정보 유출 방지)
-                pass 
-
-    # 8. 계정 존재 여부와 관계없이 항상 동일한 성공 메시지 반환
-    # (이메일 열거 공격 방지)
-    return {"message": "If an account exists, a temporary password has been sent."}
+    except Exception as e:
+        await db.rollback()
+        # 10. [수정] 이메일 발송 또는 DB 커밋 실패
+        print(f"Error during password reset for {user.email}: {e}") # 서버 로그에 에러 기록
+        return {"message": "이메일 전송 중 오류가 발생했습니다."}
