@@ -25,23 +25,33 @@ async def get_users(
 ):
     """
     사용자 목록 조회 및 검색 (관리자 전용)
-    
-    - **q**: loginId, email, nickname에서 키워드 검색
-    - **status**: 계정 상태 필터링
-    - **page**: 페이지 번호 (1부터 시작)
-    - **size**: 페이지당 항목 수 (1-100)
-    - **sort**: 정렬 기준 (예: "created_at,DESC", "login_id,ASC")
+    [수정됨] rewards_ledger에서 실제 총 포인트를 계산하여 반환합니다.
     """
     
     pagination = PaginationParams(page, size, sort)
     
-    # 기본 쿼리
-    query = select(User)
+    # 1. 포인트 합계를 계산하는 서브쿼리 생성
+    points_subquery = (
+        select(
+            RewardLedger.user_id,
+            func.sum(RewardLedger.coin_delta).label("total_points")
+        )
+        .group_by(RewardLedger.user_id)
+        .subquery()
+    )
+
+    # 2. 기본 쿼리: User와 points_subquery를 JOIN
+    # User 모델과 계산된 total_points를 함께 선택합니다.
+    query = (
+        select(User, points_subquery.c.total_points)
+        .outerjoin(points_subquery, User.id == points_subquery.c.user_id)
+    )
+    
+    # User.id 기준의 count 쿼리
     count_query = select(func.count(User.id))
     
-    # 검색 조건 추가
+    # 3. 검색 조건 추가
     conditions = []
-    
     if q:
         search_term = f"%{q}%"
         conditions.append(
@@ -51,45 +61,61 @@ async def get_users(
                 User.nickname.ilike(search_term)
             )
         )
-    
     if status:
         if status not in ["active", "blocked", "deleted"]:
             raise HTTPException(status_code=400, detail="Invalid status. Must be: active, blocked, deleted")
         conditions.append(User.status == status)
     
-    # 조건 적용
+    # 4. 조건 적용
     if conditions:
         query = query.where(*conditions)
         count_query = count_query.where(*conditions)
     
-    # 정렬 적용
-    if hasattr(User, pagination.sort_field):
+    # 5. 정렬 적용 (total_points 기준 정렬 추가)
+    if pagination.sort_field == "points": # 'points'로 정렬 요청 시
+        sort_column = func.coalesce(points_subquery.c.total_points, 0) # NULL을 0으로
+    elif hasattr(User, pagination.sort_field):
         sort_column = getattr(User, pagination.sort_field)
-        if pagination.sort_direction == "ASC":
-            query = query.order_by(sort_column.asc())
-        else:
-            query = query.order_by(sort_column.desc())
     else:
-        # 기본 정렬: created_at DESC
-        query = query.order_by(User.created_at.desc())
-    
-    # 페이지네이션 적용
+        sort_column = User.created_at # 기본값
+        
+    if pagination.sort_direction == "ASC":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # 6. 페이지네이션 적용
     query = query.offset(pagination.offset).limit(pagination.size)
     
-    # 쿼리 실행
+    # 7. 쿼리 실행 및 결과 처리
     result = await db.execute(query)
-    users = result.scalars().all()
+    user_rows = result.all()  # (User, total_points) 튜플 리스트
     
     count_result = await db.execute(count_query)
     total = count_result.scalar()
     
+    # 8. 응답 아이템 생성 (실시간 포인트 덮어쓰기)
+    items = []
+    for user, total_points in user_rows:
+        # User 모델을 Pydantic 모델로 변환
+        user_response = UserResponse.model_validate(user)
+        
+        # profile 필드가 None일 경우 빈 dict로 초기화
+        if user_response.profile is None:
+            user_response.profile = {}
+            
+        # user.profile.points 값을 '실시간 총합계'로 덮어쓰기
+        user_response.profile['points'] = total_points or 0
+        
+        items.append(user_response)
+
+    # 9. 수동으로 생성한 items 리스트 반환
     return PaginatedResponse(
-        items=[UserResponse.model_validate(user) for user in users],
+        items=items,
         page=pagination.page,
         size=pagination.size,
         total=total
     )
-
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
 async def update_user(
