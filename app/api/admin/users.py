@@ -57,8 +57,6 @@ async def get_users(
         conditions.append(
             or_(
                 User.login_id.ilike(search_term),
-                User.email.ilike(search_term),
-                User.nickname.ilike(search_term)
             )
         )
     if status:
