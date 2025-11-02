@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import asyncio
+import os
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import check_db_connection, init_db
@@ -30,6 +32,11 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.DEBUG else ["api.xpg.example.com", "localhost"]
 )
 
+static_dir = "static"
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.on_event("startup")
 async def startup_event():

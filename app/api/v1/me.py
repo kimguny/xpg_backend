@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List
@@ -17,6 +17,7 @@ from app.core.security import verify_password, get_password_hash
 from app.schemas.progress import RewardHistoryItem
 from app.schemas.common import PaginatedResponse
 from app.models import RewardLedger
+from app.utils.file_uploader import upload_file_to_storage
 
 router = APIRouter()
 
@@ -194,4 +195,56 @@ async def delete_my_account(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to request account deletion: {e}"
+        )
+
+@router.patch(
+    "/profile-image", 
+    response_model=UserResponse,
+    summary="[App] 프로필 이미지 업로드 및 URL 업데이트"
+)
+async def upload_profile_image(
+    file: UploadFile = File(..., description="업로드할 프로필 이미지 파일"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    클라이언트로부터 이미지 파일을 받아 저장소에 업로드하고, 
+    반환된 URL로 사용자 프로필(profile_image_url)을 업데이트합니다.
+    """
+    
+    # 1. 파일 유효성 검사 (MIME 타입, 크기 등)
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="유효한 이미지 파일이 아닙니다."
+        )
+
+    try:
+        # 2. [수정] 실제 파일 업로드 유틸리티 호출
+        # 'users/{user_id}/profile' 경로에 저장
+        uploaded_url = await upload_file_to_storage(
+            file=file, 
+            path_prefix=f"users/{current_user.id}/profile"
+        )
+        
+        if not uploaded_url:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="파일 저장소(Storage) 업로드에 실패했습니다."
+            )
+
+        # 3. 사용자 모델 업데이트
+        current_user.profile_image_url = uploaded_url
+        
+        await db.commit()
+        await db.refresh(current_user)
+        
+        return UserResponse.model_validate(current_user)
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            # [수정] 에러 메시지 상세화
+            detail=f"이미지 업로드 및 프로필 업데이트 실패: {str(e)}"
         )

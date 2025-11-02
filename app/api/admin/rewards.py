@@ -13,6 +13,9 @@ from app.models import Admin, StoreReward
 from app.schemas.common import PaginatedResponse
 from app.schemas.reward import StoreRewardResponse, StoreRewardUpdate
 
+import json
+from app.utils.qr_generator import generate_qr_code_image
+
 router = APIRouter()
 
 # [2. 추가] 모든 리워드 목록 조회 API (신규)
@@ -129,3 +132,50 @@ async def delete_store_reward(
     await db.delete(reward)
     await db.commit()
     return Response(status_code=204)
+
+# [5. POST /admin/rewards/{reward_id}/generate-qr] QR 코드 생성 API (로직 수정)
+@router.post(
+    "/{reward_id}/generate-qr",
+    response_model=Dict[str, str],
+    summary="(관리자) 리워드 상품 교환용 QR 코드 생성"
+)
+async def generate_reward_qr_code(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    reward_id: uuid.UUID,
+    current_admin: Admin = Depends(deps.get_current_admin)
+):
+    """
+    교환처에서 스캔할 상품/매장 정보가 인코딩된 QR 코드를 생성하고 URL을 반환합니다.
+    QR 코드 내용: {상품ID}/{매장ID}/{상품코드}
+    """
+    
+    # 1. 상품 정보 조회 (StoreReward, Store 포함)
+    result = await db.execute(
+        select(StoreReward).where(StoreReward.id == reward_id).options(selectinload(StoreReward.store))
+    )
+    reward = result.scalar_one_or_none()
+    
+    if not reward or not reward.store:
+        raise HTTPException(status_code=404, detail="Reward or associated Store not found")
+        
+    # 2. QR 코드 인코딩 데이터 생성
+    qr_data_payload = {
+        "reward_id": str(reward.id),
+        "store_id": str(reward.store_id),
+        "price_coin": reward.price_coin,
+    }
+    
+    # 3. 실제 QR 코드 생성 유틸리티 호출 (비동기)
+    try:
+        qr_image_url = await generate_qr_code_image(
+            data=qr_data_payload,
+            filename_prefix=f"reward_{reward.id}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QR Code generation failed: {e}")
+
+    return {
+        "qr_image_url": qr_image_url,
+        "note": "QR 코드가 성공적으로 생성되었습니다."
+    }
