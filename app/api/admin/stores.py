@@ -49,13 +49,14 @@ async def read_stores(
     skip: int = 0,
     limit: int = 100,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> List[models.Store]:
+) -> List[schemas.StoreResponse]: # [1. 수정] 반환 타입을 Pydantic 스키마 리스트로 명시
     """
     (관리자) 매장 목록을 조회합니다. (화면설계서 31p '매장 리스트')
-    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading합니다.
+    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading하고,
+    Pydantic 모델을 수동으로 생성하여 반환합니다.
     """
     
-    # [수정] .options(selectinload(models.Store.rewards)) 를 추가합니다.
+    # .options(selectinload(models.Store.rewards))는 그대로 유지
     stmt = (
         select(models.Store)
         .options(selectinload(models.Store.rewards))
@@ -64,13 +65,35 @@ async def read_stores(
     )
     
     result = await db.execute(stmt)
-    
-    # [수정] .unique()를 추가하여 중복을 제거합니다.
     stores = result.scalars().unique().all()
     
-    # Pydantic v2와 orm_mode=True (from_attributes=True)가 
-    # selectinload된 'rewards'를 올바르게 처리할 것입니다.
-    return stores
+    # [2. 수정] SQLAlchemy 모델(stores)을 Pydantic 모델(StoreResponse) 리스트로 수동 변환
+    response_items = []
+    for store in stores:
+        # store.rewards는 selectinload로 이미 로드되었습니다.
+        reward_responses = [
+            schemas.StoreRewardResponse.model_validate(reward) 
+            for reward in store.rewards
+        ]
+        
+        response_items.append(
+            schemas.StoreResponse(
+                id=store.id,
+                store_name=store.store_name,
+                description=store.description,
+                address=store.address,
+                latitude=store.latitude,
+                longitude=store.longitude,
+                display_start_at=store.display_start_at,
+                display_end_at=store.display_end_at,
+                is_always_on=store.is_always_on,
+                map_image_url=store.map_image_url,
+                show_products=store.show_products,
+                rewards=reward_responses
+            )
+        )
+
+    return response_items
 
 @router.get("/{store_id}", response_model=schemas.StoreResponse)
 async def read_store(
