@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 from typing import List, Optional
+from uuid import UUID  # [1. UUID 임포트]
 
 from app.api.deps import get_db, get_current_admin
-from app.models import Admin, RewardLedger, User  # User 모델 임포트 필요
+from app.models import Admin, RewardLedger, User
 from pydantic import BaseModel, ConfigDict
 
 # --- Pydantic Schemas (응답 모델) ---
@@ -22,15 +23,15 @@ class RewardLedgerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    user_id: str
+    user_id: UUID  # [2. str -> UUID로 수정]
     coin_delta: int
     note: Optional[str] = None
     created_at: datetime
-    content_id: Optional[str] = None
-    stage_id: Optional[str] = None
-    store_reward_id: Optional[str] = None
+    content_id: Optional[UUID] = None     # [3. str -> UUID로 수정]
+    stage_id: Optional[UUID] = None       # [4. str -> UUID로 수정]
+    store_reward_id: Optional[UUID] = None  # [5. str -> UUID로 수정]
     
-    user: UserSimpleResponse  # 사용자 정보 포함
+    user: UserSimpleResponse
 
 class PaginatedRewardLedgerResponse(BaseModel):
     """결제 내역 페이지네이션 응답 모델"""
@@ -41,7 +42,7 @@ class PaginatedRewardLedgerResponse(BaseModel):
 
 # --- API Router ---
 
-router = APIRouter()
+router = APRouter()
 
 @router.get("/reward-ledger", response_model=PaginatedRewardLedgerResponse)
 async def get_admin_reward_ledger(
@@ -61,7 +62,8 @@ async def get_admin_reward_ledger(
     total = total_result.scalar() or 0
     
     # 2. 데이터 조회 쿼리 (사용자 정보 포함)
-    query = select(RewardLedger).options(joinedload(RewardLedger.user))
+    #    [수정] user 관계가 없는 경우(탈퇴한 유저 등)를 대비해 isouter=True 추가
+    query = select(RewardLedger).options(joinedload(RewardLedger.user, isouter=True))
     
     # 3. 정렬 로직
     try:
@@ -73,7 +75,7 @@ async def get_admin_reward_ledger(
         # 정렬 기준 필드 찾기
         sort_field = None
         if sort_field_name == "user.nickname":
-            # 닉네임 정렬 시 User 테이블 조인 필요
+            # 닉네임 정렬 시 User 테이블 조인 필요 (isouter=True)
             query = query.join(RewardLedger.user, isouter=True) 
             sort_field = User.nickname
         else:
