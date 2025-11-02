@@ -150,9 +150,6 @@ class RewardLedger(Base):
     user = relationship("User", back_populates="rewards")
     content = relationship("Content", back_populates="rewards")
     stage = relationship("Stage", back_populates="rewards")
-
-    store = relationship("Store")
-    reward = relationship("StoreReward")
     
     def __repr__(self):
         return f"<RewardLedger(id={self.id}, user_id={self.user_id}, coin_delta={self.coin_delta})>"
