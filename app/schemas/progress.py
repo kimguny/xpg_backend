@@ -1,6 +1,9 @@
+import uuid
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from pydantic import BaseModel, ConfigDict
+from typing import Optional
 
 class StageUnlockRequest(BaseModel):
     """스테이지 해금 요청"""
@@ -56,3 +59,19 @@ class NFCScanResponse(BaseModel):
     cooldown_sec: int = 0
     hint: Optional[Dict[str, Any]] = None
     next: Optional[Dict[str, Any]] = None  # {"type": "hint"|"stage", "id": "uuid"}
+
+class RewardConsumeRequest(BaseModel):
+    """
+    리워드 상품 교환 요청 스키마
+    """
+    reward_id: uuid.UUID = Field(..., description="교환할 StoreReward의 ID")
+
+class RewardConsumeResponse(BaseModel):
+    """
+    리워드 상품 교환 응답 스키마
+    """
+    success: bool = True
+    reward_id: uuid.UUID
+    points_deducted: int
+    remaining_points: int
+    ledger_id: int # rewards_ledger에 기록된 ID
