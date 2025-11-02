@@ -1,10 +1,10 @@
-from fastapi import APRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query  # [1. APRouter -> APIRouter 수정]
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 from typing import List, Optional
-from uuid import UUID  # [1. UUID 임포트]
+from uuid import UUID
 
 from app.api.deps import get_db, get_current_admin
 from app.models import Admin, RewardLedger, User
@@ -23,13 +23,13 @@ class RewardLedgerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    user_id: UUID  # [2. str -> UUID로 수정]
+    user_id: UUID
     coin_delta: int
     note: Optional[str] = None
     created_at: datetime
-    content_id: Optional[UUID] = None     # [3. str -> UUID로 수정]
-    stage_id: Optional[UUID] = None       # [4. str -> UUID로 수정]
-    store_reward_id: Optional[UUID] = None  # [5. str -> UUID로 수정]
+    content_id: Optional[UUID] = None
+    stage_id: Optional[UUID] = None
+    store_reward_id: Optional[UUID] = None
     
     user: UserSimpleResponse
 
@@ -42,7 +42,7 @@ class PaginatedRewardLedgerResponse(BaseModel):
 
 # --- API Router ---
 
-router = APRouter()
+router = APIRouter()  # [2. APRouter -> APIRouter 수정]
 
 @router.get("/reward-ledger", response_model=PaginatedRewardLedgerResponse)
 async def get_admin_reward_ledger(
@@ -62,7 +62,6 @@ async def get_admin_reward_ledger(
     total = total_result.scalar() or 0
     
     # 2. 데이터 조회 쿼리 (사용자 정보 포함)
-    #    [수정] user 관계가 없는 경우(탈퇴한 유저 등)를 대비해 isouter=True 추가
     query = select(RewardLedger).options(joinedload(RewardLedger.user, isouter=True))
     
     # 3. 정렬 로직
