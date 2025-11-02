@@ -6,56 +6,52 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.api.deps import get_db, get_current_admin
-# [수정] NfcTag -> NFCTag
 from app.models import Admin, RewardLedger, StoreReward, User, Content, NFCTag, UserContentProgress
-from app.schemas.dashboard import DashboardStatsResponse
+from app.schemas.dashboard import DashboardStatsResponse # 기존 스키마
 
-# [추가] Pydantic 및 신규 스키마
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import column_property
 
 # --- Pydantic Schemas for HOME Dashboard (신규 추가) ---
 
 class UserStats(BaseModel):
-    """회원 통계"""
+    model_config = ConfigDict(from_attributes=True)
     total: int
     today_signups: int
     today_withdrawals: int
 
-class ContentStats(BaseModel):
-    """콘텐츠 통계"""
+class ContentStatsRaw(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     active_count: int
     total: int
 
-class NfcTagStats(BaseModel):
-    """NFC 통계"""
+class NfcTagStatsRaw(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     active_count: int
     total: int
 
 class OngoingContentResponse(BaseModel):
-    """진행중인 콘텐츠 (참여인원 포함)"""
     model_config = ConfigDict(from_attributes=True)
-    
     id: UUID
     title: str
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
-    participant_count: int # 참여인원 수
+    participant_count: int
 
-class HomeDashboardResponse(BaseModel):
-    """HOME 대시보드 전체 응답"""
+class HomeDashboardResponseRaw(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     users: UserStats
-    contents: ContentStats
-    nfc_tags: NfcTagStats # [참고] 이 이름은 Pydantic 스키마 이름이므로 소문자 fc가 맞습니다.
-    rewards: dict = {"status": "pending"} 
-    errors: dict = {"status": "pending"}
-    promo: dict = {"status": "pending"}
+    contents: ContentStatsRaw
+    nfc_tags: NfcTagStatsRaw
+    rewards: dict = {"status": "coming soon"}
+    errors: dict = {"status": "coming soon"}
+    promo: dict = {"status": "coming soon"}
     ongoing_contents: List[OngoingContentResponse]
 
-# --- API Router ---
+
+# --- 기존 /stats 엔드포인트 ---
 
 router = APIRouter()
-
-# --- 기존 엔드포인트 ---
 
 @router.get("/stats", response_model=DashboardStatsResponse)
 async def get_dashboard_stats(
@@ -63,14 +59,13 @@ async def get_dashboard_stats(
     current_admin: Admin = Depends(get_current_admin)
 ):
     """
-    관리자 대시보드 상단 카드 4개 통계 조회 (매장/리워드 관리용)
+    관리자 대시보드 상단 카드 4개 통계 조회 (매장/리워드 관리)
     """
     
-    # 1. 오늘 날짜 (UTC 자정 기준)
     today_start = datetime.combine(datetime.utcnow().date(), time.min)
     today_end = datetime.combine(datetime.utcnow().date(), time.max)
     
-    # 2. 오늘 교환 건수
+    # 1. 오늘 교환 건수
     today_consumed_result = await db.execute(
         select(func.count(RewardLedger.id))
         .where(
@@ -82,7 +77,7 @@ async def get_dashboard_stats(
     )
     today_consumed_count = today_consumed_result.scalar() or 0
     
-    # 3. 누적 교환 건수
+    # 2. 누적 교환 건수
     total_consumed_result = await db.execute(
         select(func.count(RewardLedger.id))
         .where(
@@ -92,7 +87,7 @@ async def get_dashboard_stats(
     )
     total_consumed_count = total_consumed_result.scalar() or 0
     
-    # 4. 총 포인트 차감
+    # 3. 총 포인트 차감
     total_spent_result = await db.execute(
         select(func.sum(RewardLedger.coin_delta))
         .where(
@@ -102,7 +97,7 @@ async def get_dashboard_stats(
     )
     total_points_spent = total_spent_result.scalar() or 0
     
-    # 5. 재고 임박 (10개 이하)
+    # 4. 재고 임박 (10개 이하)
     low_stock_result = await db.execute(
         select(func.count(StoreReward.id))
         .where(
@@ -120,80 +115,80 @@ async def get_dashboard_stats(
         low_stock_count=low_stock_count
     )
 
-# --- 신규 엔드포인트 (HOME 대시보드용) ---
 
-@router.get(
-    "/home-dashboard", 
-    response_model=HomeDashboardResponse,
-    summary="HOME 대시보드 전체 데이터 조회"
-)
+# --- 신규 /home-dashboard 엔드포인트 ---
+
+@router.get("/home-dashboard", response_model=HomeDashboardResponseRaw)
 async def get_home_dashboard(
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
     """
-    관리자 HOME 대시보드에 필요한 모든 통계와 목록을 한 번에 조회합니다.
+    관리자 HOME 대시보드 6개 카드 + 진행중인 콘텐츠 조회
     """
     
-    # 0. 기준 시간 (오늘 자정 UTC)
     today_start = datetime.combine(datetime.utcnow().date(), time.min)
+    today_end = datetime.combine(datetime.utcnow().date(), time.max)
+
+    # [수정] db.execute_many 대신 개별 쿼리 실행
     
-    # --- 1. 통계 카드 쿼리 ---
-    
-    # 1.1. User Stats
-    user_total_q = select(func.count(User.id)).where(User.status != 'deleted')
-    user_today_q = select(func.count(User.id)).where(User.created_at >= today_start)
-    user_deleted_q = select(func.count(User.id)).where(
-        User.status == 'deleted',
-        User.last_active_at >= today_start # 'updated_at' 또는 'last_active_at'
+    # 1. User Stats
+    total_user_res = await db.execute(
+        select(func.count(User.id)).where(User.deleted_at.is_(None))
     )
-    
-    # 1.2. Content Stats
-    content_total_q = select(func.count(Content.id))
-    content_active_q = select(func.count(Content.id)).where(Content.is_open == True)
-    
-    # 1.3. NFC Stats [수정] NfcTag -> NFCTag
-    nfc_total_q = select(func.count(NFCTag.id))
-    nfc_active_q = select(func.count(NFCTag.id)).where(NFCTag.is_active == True)
-    
-    # 1.4. 통계 쿼리 동시 실행
-    results = await db.execute_many(
-        [
-            user_total_q, user_today_q, user_deleted_q,
-            content_total_q, content_active_q,
-            nfc_total_q, nfc_active_q
-        ]
+    today_signup_res = await db.execute(
+        select(func.count(User.id)).where(User.created_at >= today_start, User.created_at <= today_end)
     )
-    scalars = [res.scalar() or 0 for res in results]
-    
+    # [수정] 탈퇴 로직 수정 (오늘 날짜 기준)
+    today_withdrawal_res = await db.execute(
+        select(func.count(User.id)).where(
+            User.deleted_at >= today_start, 
+            User.deleted_at <= today_end
+        )
+    )
     user_stats = UserStats(
-        total=scalars[0],
-        today_signups=scalars[1],
-        today_withdrawals=scalars[2]
+        total=total_user_res.scalar() or 0,
+        today_signups=today_signup_res.scalar() or 0,
+        today_withdrawals=today_withdrawal_res.scalar() or 0
     )
-    content_stats = ContentStats(
-        total=scalars[3],
-        active_count=scalars[4]
+
+    # 2. Content Stats
+    active_content_res = await db.execute(
+        select(func.count(Content.id)).where(Content.is_open == True)
     )
-    nfc_stats = NfcTagStats(
-        total=scalars[5],
-        active_count=scalars[6]
+    total_content_res = await db.execute(
+        select(func.count(Content.id))
     )
-    
-    # --- 2. 진행중인 콘텐츠 쿼리 (참여인원 포함) ---
-    
+    content_stats = ContentStatsRaw(
+        active_count=active_content_res.scalar() or 0,
+        total=total_content_res.scalar() or 0
+    )
+
+    # 3. NFCTag Stats
+    active_nfc_res = await db.execute(
+        select(func.count(NFCTag.id)).where(NFCTag.is_active == True)
+    )
+    total_nfc_res = await db.execute(
+        select(func.count(NFCTag.id))
+    )
+    nfc_stats = NfcTagStatsRaw(
+        active_count=active_nfc_res.scalar() or 0,
+        total=total_nfc_res.scalar() or 0
+    )
+
+    # 4. Ongoing Contents (참여자 수 포함)
+    #    '참여자 수'를 서브쿼리로 계산하여 Content 모델에 동적으로 추가
     participant_subq = (
         select(func.count(UserContentProgress.user_id))
         .where(UserContentProgress.content_id == Content.id)
-        .where(UserContentProgress.status.in_(['joined', 'in_progress', 'cleared']))
-        .correlate(Content)
+        .correlate(Content) # 외부 쿼리의 Content 테이블과 연결
         .scalar_subquery()
     )
     
     ongoing_contents_query = (
         select(
             Content,
-            participant_subq.label("participant_count")
+            participant_subq.label("participant_count") # 계산된 값을 participant_count로 별칭
         )
         .where(Content.is_open == True)
         .order_by(Content.created_at.desc())
@@ -201,23 +196,22 @@ async def get_home_dashboard(
     
     ongoing_contents_result = await db.execute(ongoing_contents_query)
     
-    ongoing_contents_list: List[OngoingContentResponse] = []
-    for content, count in ongoing_contents_result.all():
-        ongoing_contents_list.append(
-            OngoingContentResponse(
-                id=content.id,
-                title=content.title,
-                start_at=content.start_at,
-                end_at=content.end_at,
-                participant_count=count or 0
-            )
-        )
+    # (Content, participant_count) 튜플 형태로 결과를 받음
+    ongoing_contents_rows = ongoing_contents_result.all() 
 
-    # --- 3. 최종 응답 반환 ---
-    
-    return HomeDashboardResponse(
+    # 5. 응답 모델 조립
+    return HomeDashboardResponseRaw(
         users=user_stats,
         contents=content_stats,
         nfc_tags=nfc_stats,
-        ongoing_contents=ongoing_contents_list
+        rewards={"status": "coming soon"},
+        errors={"status": "coming soon"},
+        promo={"status": "coming soon"},
+        ongoing_contents=[
+            OngoingContentResponse(
+                # row[0]는 Content 객체, row[1]은 participant_count 값
+                **row[0].__dict__, # Content 객체의 필드를 그대로 사용
+                participant_count=row[1] or 0
+            ) for row in ongoing_contents_rows
+        ]
     )
