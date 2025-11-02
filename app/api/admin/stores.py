@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List
 import uuid
 
@@ -51,9 +52,24 @@ async def read_stores(
 ) -> List[models.Store]:
     """
     (관리자) 매장 목록을 조회합니다. (화면설계서 31p '매장 리스트')
+    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading합니다.
     """
-    result = await db.execute(select(models.Store).offset(skip).limit(limit))
-    stores = result.scalars().all()
+    
+    # [수정] .options(selectinload(models.Store.rewards)) 를 추가합니다.
+    stmt = (
+        select(models.Store)
+        .options(selectinload(models.Store.rewards))
+        .offset(skip)
+        .limit(limit)
+    )
+    
+    result = await db.execute(stmt)
+    
+    # [수정] .unique()를 추가하여 중복을 제거합니다.
+    stores = result.scalars().unique().all()
+    
+    # Pydantic v2와 orm_mode=True (from_attributes=True)가 
+    # selectinload된 'rewards'를 올바르게 처리할 것입니다.
     return stores
 
 @router.get("/{store_id}", response_model=schemas.StoreResponse)
