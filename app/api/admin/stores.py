@@ -43,51 +43,57 @@ async def create_store(
         rewards=[] # Lazy Loading을 방지하고 빈 리스트를 명시
     )
 
-@router.get("/{store_id}", response_model=schemas.StoreResponse)
-async def read_store(
-    *,
+@router.get("/", response_model=List[schemas.StoreResponse])
+async def read_stores(
     db: AsyncSession = Depends(deps.get_db),
-    store_id: uuid.UUID,
+    skip: int = 0,
+    limit: int = 100,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> schemas.StoreResponse: # [1. 수정] 반환 타입을 Pydantic 모델로
+) -> List[schemas.StoreResponse]: # [1. 수정] 반환 타입을 Pydantic 스키마 리스트로 명시
     """
-    (관리자) 특정 매장의 상세 정보를 조회합니다.
-    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading합니다.
+    (관리자) 매장 목록을 조회합니다. (화면설계서 31p '매장 리스트')
+    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading하고,
+    Pydantic 모델을 수동으로 생성하여 반환합니다.
     """
     
-    # [2. 수정] 쿼리에 selectinload 옵션 추가
+    # .options(selectinload(models.Store.rewards))는 그대로 유지
     stmt = (
         select(models.Store)
-        .where(models.Store.id == store_id)
-        .options(selectinload(models.Store.rewards)) # Eager load rewards
+        .options(selectinload(models.Store.rewards))
+        .offset(skip)
+        .limit(limit)
     )
     
     result = await db.execute(stmt)
-    store = result.scalars().unique().one_or_none() # .unique() 추가
+    stores = result.scalars().unique().all()
     
-    if not store:
-        raise HTTPException(status_code=404, detail="Store not found")
+    # [2. 수정] SQLAlchemy 모델(stores)을 Pydantic 모델(StoreResponse) 리스트로 수동 변환
+    response_items = []
+    for store in stores:
+        # store.rewards는 selectinload로 이미 로드되었습니다.
+        reward_responses = [
+            schemas.StoreRewardResponse.model_validate(reward) 
+            for reward in store.rewards
+        ]
+        
+        response_items.append(
+            schemas.StoreResponse(
+                id=store.id,
+                store_name=store.store_name,
+                description=store.description,
+                address=store.address,
+                latitude=store.latitude,
+                longitude=store.longitude,
+                display_start_at=store.display_start_at,
+                display_end_at=store.display_end_at,
+                is_always_on=store.is_always_on,
+                map_image_url=store.map_image_url,
+                show_products=store.show_products,
+                rewards=reward_responses
+            )
+        )
 
-    # [3. 수정] Pydantic 모델 수동 변환 (Lazy Loading 방지)
-    reward_responses = [
-        schemas.StoreRewardResponse.model_validate(reward)
-        for reward in store.rewards
-    ]
-
-    return schemas.StoreResponse(
-        id=store.id,
-        store_name=store.store_name,
-        description=store.description,
-        address=store.address,
-        latitude=store.latitude,
-        longitude=store.longitude,
-        display_start_at=store.display_start_at,
-        display_end_at=store.display_end_at,
-        is_always_on=store.is_always_on,
-        map_image_url=store.map_image_url,
-        show_products=store.show_products,
-        rewards=reward_responses
-    )
+    return response_items
 
 @router.get("/{store_id}", response_model=schemas.StoreResponse)
 async def read_store(
