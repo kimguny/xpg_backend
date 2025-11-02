@@ -154,11 +154,11 @@ async def update_store(
     (관리자) 특정 매장의 정보를 수정합니다.
     """
     
-    # [2. 수정] 쿼리에 selectinload 옵션 추가
+    # [2. 수정] 쿼리에 selectinload 옵션 추가 (refresh 후 rewards를 읽기 위해)
     stmt = (
         select(models.Store)
         .where(models.Store.id == store_id)
-        .options(selectinload(models.Store.rewards)) # Eager load rewards
+        .options(selectinload(models.Store.rewards)) # rewards를 미리 로드
     )
     
     result = await db.execute(stmt)
@@ -176,6 +176,9 @@ async def update_store(
     await db.refresh(store)
     
     # [3. 수정] Pydantic 모델 수동 변환 (Lazy Loading 방지)
+    # db.refresh() 후에도 'rewards' 관계가 로드된 상태인지 보장하기 위해
+    # 'store' 객체를 다시 로드하거나, 이미 로드된 'store.rewards'를 사용합니다.
+    # (selectinload를 했으므로 store.rewards는 이미 로드되어 있어야 함)
     reward_responses = [
         schemas.StoreRewardResponse.model_validate(reward)
         for reward in store.rewards
@@ -193,7 +196,7 @@ async def update_store(
         is_always_on=store.is_always_on,
         map_image_url=store.map_image_url,
         show_products=store.show_products,
-        rewards=reward_responses
+        rewards=reward_responses # 수동으로 변환된 리스트 주입
     )
 
 @router.delete("/{store_id}", status_code=204)
