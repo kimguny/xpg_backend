@@ -15,7 +15,7 @@ async def create_store(
     db: AsyncSession = Depends(deps.get_db),
     store_in: schemas.StoreCreate,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> models.Store:
+) -> schemas.StoreResponse: # [1. 수정] 반환 타입을 Pydantic 모델로 변경
     """
     (관리자) 새로운 매장을 생성합니다. (화면설계서 32p '매장 등록')
     """
@@ -23,7 +23,24 @@ async def create_store(
     db.add(db_store)
     await db.commit()
     await db.refresh(db_store)
-    return db_store
+    
+    # [2. 수정] db_store(SQLAlchemy 모델) 대신,
+    # Pydantic 모델(StoreResponse)을 직접 생성하여 반환합니다.
+    # 새로 생성된 매장은 항상 rewards가 빈 리스트([])입니다.
+    return schemas.StoreResponse(
+        id=db_store.id,
+        store_name=db_store.store_name,
+        description=db_store.description,
+        address=db_store.address,
+        latitude=db_store.latitude,
+        longitude=db_store.longitude,
+        display_start_at=db_store.display_start_at,
+        display_end_at=db_store.display_end_at,
+        is_always_on=db_store.is_always_on,
+        map_image_url=db_store.map_image_url,
+        show_products=db_store.show_products,
+        rewards=[] # Lazy Loading을 방지하고 빈 리스트를 명시
+    )
 
 @router.get("/", response_model=List[schemas.StoreResponse])
 async def read_stores(
