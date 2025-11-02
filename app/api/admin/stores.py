@@ -101,15 +101,46 @@ async def read_store(
     db: AsyncSession = Depends(deps.get_db),
     store_id: uuid.UUID,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> models.Store:
+) -> schemas.StoreResponse: # [1. 수정] 반환 타입을 Pydantic 모델로
     """
     (관리자) 특정 매장의 상세 정보를 조회합니다.
+    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading합니다.
     """
-    result = await db.execute(select(models.Store).where(models.Store.id == store_id))
-    store = result.scalar_one_or_none()
+    
+    # [2. 수정] 쿼리에 selectinload 옵션 추가
+    stmt = (
+        select(models.Store)
+        .where(models.Store.id == store_id)
+        .options(selectinload(models.Store.rewards)) # Eager load rewards
+    )
+    
+    result = await db.execute(stmt)
+    store = result.scalars().unique().one_or_none() # .unique() 추가
+    
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
-    return store
+
+    # [3. 수정] Pydantic 모델 수동 변환 (Lazy Loading 방지)
+    # store.rewards는 selectinload로 이미 로드되었습니다.
+    reward_responses = [
+        schemas.StoreRewardResponse.model_validate(reward)
+        for reward in store.rewards
+    ]
+
+    return schemas.StoreResponse(
+        id=store.id,
+        store_name=store.store_name,
+        description=store.description,
+        address=store.address,
+        latitude=store.latitude,
+        longitude=store.longitude,
+        display_start_at=store.display_start_at,
+        display_end_at=store.display_end_at,
+        is_always_on=store.is_always_on,
+        map_image_url=store.map_image_url,
+        show_products=store.show_products,
+        rewards=reward_responses # 수동으로 변환된 리스트 주입
+    )
 
 @router.patch("/{store_id}", response_model=schemas.StoreResponse)
 async def update_store(
