@@ -7,6 +7,7 @@ from .nfc_tags import router as nfc_tags_router
 from .stores import router as stores_router
 from .rewards import router as rewards_router
 from .dashboard import router as dashboard_router
+from .reward_ledger import router as reward_ledger_router
 
 # 관리자 API 메인 라우터 설정 (기존과 동일)
 admin_router = APIRouter(
@@ -28,3 +29,4 @@ admin_router.include_router(nfc_tags_router, prefix="/nfc-tags", tags=["admin-nf
 admin_router.include_router(stores_router, prefix="/stores", tags=["admin-stores"])
 admin_router.include_router(rewards_router, prefix="/rewards", tags=["admin-rewards"])
 admin_router.include_router(dashboard_router, tags=["admin-dashboard"])
+admin_router.include_router(reward_ledger_router, tags=["admin-reward-ledger"])
