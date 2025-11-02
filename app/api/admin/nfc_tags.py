@@ -4,9 +4,11 @@ from sqlalchemy import select, text, and_, func
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
-from app.models import NFCTag
+from app.models import NFCTag, Admin  # [수정 1] Admin 모델 임포트 추가
 from app.schemas.common import PaginatedResponse
 from pydantic import BaseModel, Field
+
+# [수정 2] 제가 추가했던 불필요한 import 라인 삭제
 
 class NFCTagCreate(BaseModel):
     """NFC 태그 생성 요청"""
@@ -91,7 +93,7 @@ def format_nfc_response(nfc_tag: NFCTag) -> NFCTagResponse:
 async def create_nfc_tag(
     nfc_data: NFCTagCreate,
     db: AsyncSession = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
 ):
     """
     NFC 태그 등록
@@ -154,7 +156,7 @@ async def get_nfc_tags(
     active: Optional[bool] = Query(None, description="활성화 상태 필터"),
     search: Optional[str] = Query(None, description="태그명/UDID 검색"),
     db: AsyncSession = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
 ):
     """
     NFC 태그 목록 조회
@@ -205,7 +207,7 @@ async def get_nfc_tags(
 async def get_nfc_tag(
     nfc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
 ):
     """
     NFC 태그 상세 조회
@@ -227,7 +229,7 @@ async def update_nfc_tag(
     nfc_id: str,
     nfc_data: NFCTagUpdate,
     db: AsyncSession = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
 ):
     """
     NFC 태그 수정
@@ -278,7 +280,7 @@ async def update_nfc_tag(
 async def delete_nfc_tag(
     nfc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
 ):
     """
     NFC 태그 삭제
@@ -308,3 +310,34 @@ async def delete_nfc_tag(
     await db.commit()
     
     return {"deleted": True, "nfc_id": nfc_id}
+
+
+# [Task 3] UDID로 NFC 태그 조회 API (기존 코드에 있던 함수)
+@router.get(
+    "/by-udid", 
+    response_model=NFCTagResponse, # [수정 4] NFCTagResponse 사용
+    summary="[Task 3] UDID로 기등록된 NFC 태그 조회",
+    responses={
+        404: {"description": "해당 UDID로 등록된 태그 없음"}
+    }
+)
+async def get_nfc_tag_by_udid(
+    udid: str = Query(..., description="조회할 NFC 태그의 UDID"),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+):
+    """
+    NFC 태그 등록 시, UDID를 기준으로 이미 등록된 태그가 있는지 조회합니다.
+    """
+    
+    query = select(NFCTag).where(NFCTag.udid == udid) # [수정 5] NFCTag 모델 사용
+    result = await db.execute(query)
+    tag = result.scalars().first()
+    
+    if not tag:
+        raise HTTPException(
+            status_code=404, 
+            detail="해당 UDID로 등록된 NFC 태그를 찾을 수 없습니다."
+        )
+        
+    return format_nfc_response(tag) # [수정 6] format_nfc_response로 감싸서 반환
