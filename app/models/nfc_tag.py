@@ -20,6 +20,7 @@ class NFCTag(Base):
     
     # 태그 정보
     tag_name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
     address = Column(Text, nullable=True)
     floor_location = Column(Text, nullable=True)
     

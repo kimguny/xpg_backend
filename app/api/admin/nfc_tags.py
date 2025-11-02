@@ -12,6 +12,7 @@ class NFCTagCreate(BaseModel):
     """NFC 태그 생성 요청"""
     udid: str = Field(..., min_length=1, max_length=100, description="고유 UDID")
     tag_name: str = Field(..., min_length=1, max_length=200, description="태그명")
+    description: Optional[str] = Field(None, description="설명")
     address: Optional[str] = Field(None, description="주소")
     floor_location: Optional[str] = Field(None, description="층/세부 위치")
     media_url: Optional[str] = Field(None, description="미디어 URL")
@@ -28,6 +29,7 @@ class NFCTagCreate(BaseModel):
 class NFCTagUpdate(BaseModel):
     """NFC 태그 수정 요청"""
     tag_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
     address: Optional[str] = None
     floor_location: Optional[str] = None
     media_url: Optional[str] = None
@@ -48,6 +50,7 @@ class NFCTagResponse(BaseModel):
     id: str
     udid: str
     tag_name: str
+    description: Optional[str] = None
     address: Optional[str] = None
     floor_location: Optional[str] = None
     media_url: Optional[str] = None
@@ -69,6 +72,7 @@ def format_nfc_response(nfc_tag: NFCTag) -> NFCTagResponse:
         id=str(nfc_tag.id),
         udid=nfc_tag.udid,
         tag_name=nfc_tag.tag_name,
+        description=nfc_tag.description,
         address=nfc_tag.address,
         floor_location=nfc_tag.floor_location,
         media_url=nfc_tag.media_url,
@@ -120,6 +124,7 @@ async def create_nfc_tag(
     nfc_tag = NFCTag(
         udid=nfc_data.udid,
         tag_name=nfc_data.tag_name,
+        description=nfc_data.description,
         address=nfc_data.address,
         floor_location=nfc_data.floor_location,
         media_url=nfc_data.media_url,
