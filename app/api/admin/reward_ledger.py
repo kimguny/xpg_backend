@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query  # [1. APRouter -> APIRouter 수정]
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
@@ -42,7 +42,7 @@ class PaginatedRewardLedgerResponse(BaseModel):
 
 # --- API Router ---
 
-router = APIRouter()  # [2. APRouter -> APIRouter 수정]
+router = APIRouter()
 
 @router.get("/reward-ledger", response_model=PaginatedRewardLedgerResponse)
 async def get_admin_reward_ledger(
@@ -62,7 +62,8 @@ async def get_admin_reward_ledger(
     total = total_result.scalar() or 0
     
     # 2. 데이터 조회 쿼리 (사용자 정보 포함)
-    query = select(RewardLedger).options(joinedload(RewardLedger.user, isouter=True))
+    #    [수정] joinedload의 'isouter=True' 인수를 'innerjoin=False'로 변경
+    query = select(RewardLedger).options(joinedload(RewardLedger.user, innerjoin=False))
     
     # 3. 정렬 로직
     try:
