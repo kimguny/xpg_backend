@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from datetime import datetime, time
-from typing import List, Optional # [추가]
-from uuid import UUID             # [추가]
+from typing import List, Optional
+from uuid import UUID
 
 from app.api.deps import get_db, get_current_admin
-# [추가] 필요한 모델들 통합
-from app.models import Admin, RewardLedger, StoreReward, User, Content, NfcTag, UserContentProgress
-from app.schemas.dashboard import DashboardStatsResponse # 기존 스키마
+# [수정] NfcTag -> NFCTag
+from app.models import Admin, RewardLedger, StoreReward, User, Content, NFCTag, UserContentProgress
+from app.schemas.dashboard import DashboardStatsResponse
 
 # [추가] Pydantic 및 신규 스키마
 from pydantic import BaseModel, ConfigDict
@@ -45,7 +45,7 @@ class HomeDashboardResponse(BaseModel):
     """HOME 대시보드 전체 응답"""
     users: UserStats
     contents: ContentStats
-    nfc_tags: NfcTagStats
+    nfc_tags: NfcTagStats # [참고] 이 이름은 Pydantic 스키마 이름이므로 소문자 fc가 맞습니다.
     rewards: dict = {"status": "pending"} 
     errors: dict = {"status": "pending"}
     promo: dict = {"status": "pending"}
@@ -152,9 +152,9 @@ async def get_home_dashboard(
     content_total_q = select(func.count(Content.id))
     content_active_q = select(func.count(Content.id)).where(Content.is_open == True)
     
-    # 1.3. NFC Stats
-    nfc_total_q = select(func.count(NfcTag.id))
-    nfc_active_q = select(func.count(NfcTag.id)).where(NfcTag.is_active == True)
+    # 1.3. NFC Stats [수정] NfcTag -> NFCTag
+    nfc_total_q = select(func.count(NFCTag.id))
+    nfc_active_q = select(func.count(NFCTag.id)).where(NFCTag.is_active == True)
     
     # 1.4. 통계 쿼리 동시 실행
     results = await db.execute_many(
