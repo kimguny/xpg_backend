@@ -138,6 +138,8 @@ class RewardLedger(Base):
     # 관련 콘텐츠/스테이지 (삭제 시 NULL로 설정)
     content_id = Column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="SET NULL"), nullable=True)
     stage_id = Column(UUID(as_uuid=True), ForeignKey("stages.id", ondelete="SET NULL"), nullable=True)
+
+    store_reward_id = Column(UUID(as_uuid=True), ForeignKey("store_rewards.id", ondelete="SET NULL"), nullable=True)
     
     # 보상 정보
     coin_delta = Column(Integer, nullable=False)  # 증감량 (음수 가능)
@@ -150,6 +152,8 @@ class RewardLedger(Base):
     user = relationship("User", back_populates="rewards")
     content = relationship("Content", back_populates="rewards")
     stage = relationship("Stage", back_populates="rewards")
+
+    reward = relationship("StoreReward") 
     
     def __repr__(self):
         return f"<RewardLedger(id={self.id}, user_id={self.user_id}, coin_delta={self.coin_delta})>"
@@ -171,6 +175,8 @@ class RewardLedger(Base):
             return "stage_reward"
         elif self.content_id:
             return "content_reward"
+        elif self.store_reward_id:
+            return "store_purchase"
         else:
             return "system_reward"
     

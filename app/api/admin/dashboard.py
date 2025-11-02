@@ -28,7 +28,7 @@ async def get_dashboard_stats(
         select(func.count(RewardLedger.id))
         .where(
             RewardLedger.coin_delta < 0,
-            RewardLedger.reward_id.is_not(None),
+            RewardLedger.store_reward_id.is_not(None),
             RewardLedger.created_at >= today_start,
             RewardLedger.created_at <= today_end
         )
@@ -40,7 +40,7 @@ async def get_dashboard_stats(
         select(func.count(RewardLedger.id))
         .where(
             RewardLedger.coin_delta < 0,
-            RewardLedger.reward_id.is_not(None)
+            RewardLedger.store_reward_id.is_not(None)
         )
     )
     total_consumed_count = total_consumed_result.scalar() or 0
@@ -50,7 +50,7 @@ async def get_dashboard_stats(
         select(func.sum(RewardLedger.coin_delta)) # coin_delta가 음수이므로 SUM
         .where(
             RewardLedger.coin_delta < 0,
-            RewardLedger.reward_id.is_not(None) # 상품 교환으로 인한 차감만
+            RewardLedger.store_reward_id.is_not(None) # 상품 교환으로 인한 차감만
         )
     )
     total_points_spent = total_spent_result.scalar() or 0
