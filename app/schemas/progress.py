@@ -37,6 +37,8 @@ class RewardHistoryItem(BaseModel):
     note: Optional[str] = None
     stage_id: Optional[str] = None
     content_id: Optional[str] = None
+    reward_id: Optional[str] = None
+    store_id: Optional[str] = None
 
 class NFCScanRequest(BaseModel):
     """NFC 스캔 요청"""

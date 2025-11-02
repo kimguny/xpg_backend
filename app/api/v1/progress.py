@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, text
-from typing import Optional
+from sqlalchemy import select, and_, text, func
+from sqlalchemy.orm import selectinload
+import uuid
+from typing import Optional, Dict
 from datetime import datetime
 
 from app.api.deps import get_db, get_current_user
 from app.models import (
     User, Stage, UserStageProgress, UserContentProgress, 
-    Content, RewardLedger
+    Content, RewardLedger, StoreReward
 )
 from app.schemas.progress import (
     StageUnlockRequest,
@@ -15,7 +17,9 @@ from app.schemas.progress import (
     StageClearRequest,
     StageClearResponse,
     RewardInfo,
-    RewardHistoryItem
+    RewardHistoryItem,
+    RewardConsumeRequest,
+    RewardConsumeResponse
 )
 from app.schemas.common import PaginatedResponse
 
@@ -279,6 +283,87 @@ async def clear_stage(
         content_cleared=content_cleared,
         next_content=next_content_id
     )
+
+@router.post("/rewards/consume", response_model=RewardConsumeResponse, summary="[App] 리워드 상품 교환(결제)")
+async def consume_reward(
+    consume_request: RewardConsumeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    사용자가 포인트를 사용해 리워드 상품을 교환(결제)합니다.
+    재고 확인, 포인트 확인, 재고 차감, 포인트 내역 기록을 트랜잭션으로 처리합니다.
+    """
+    
+    try:
+        # 1. 교환할 상품(StoreReward) 조회 (FOR UPDATE로 비관적 락 설정)
+        #    트랜잭션 격리 수준에 따라 FOR UPDATE가 필요할 수 있으나,
+        #    여기서는 먼저 객체를 조회하고 나중에 차감합니다.
+        reward_result = await db.execute(
+            select(StoreReward).where(StoreReward.id == consume_request.reward_id)
+        )
+        reward_item = reward_result.scalar_one_or_none()
+
+        if not reward_item:
+            raise HTTPException(status_code=404, detail="Reward item not found")
+        if not reward_item.is_active:
+            raise HTTPException(status_code=400, detail="Reward item is not active")
+
+        # 2. (재고 체크)
+        if reward_item.stock_qty is not None: # NULL이 아니면(무제한이 아니면)
+            if reward_item.stock_qty <= 0:
+                raise HTTPException(status_code=400, detail="Item out of stock")
+
+        # 3. (포인트 체크) 사용자의 현재 포인트 잔액 계산
+        user_points_result = await db.execute(
+            select(func.sum(RewardLedger.coin_delta)).where(RewardLedger.user_id == current_user.id)
+        )
+        current_points = user_points_result.scalar() or 0
+
+        # 4. 상품 가격과 비교
+        if current_points < reward_item.price_coin:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Not enough points. Required: {reward_item.price_coin}, Available: {current_points}"
+            )
+            
+        # 5. (재고 차감) stock_qty가 NULL이 아닐 때만 1 차감
+        if reward_item.stock_qty is not None:
+            reward_item.stock_qty -= 1
+            
+        # 6. (포인트 내역 기록) RewardLedger에 차감 내역 추가
+        new_ledger_entry = RewardLedger(
+            user_id=current_user.id,
+            store_id=reward_item.store_id, # [수정] StoreReward의 store_id 참조
+            reward_id=reward_item.id,     # [수정] StoreReward의 id 참조
+            coin_delta=-reward_item.price_coin, # 포인트 차감
+            note=f"Consumed: {reward_item.product_name}"
+        )
+        db.add(new_ledger_entry)
+
+        # 7. 트랜잭션 커밋
+        await db.commit()
+
+        # 8. 성공 응답 반환
+        return RewardConsumeResponse(
+            success=True,
+            reward_id=reward_item.id,
+            points_deducted=reward_item.price_coin,
+            remaining_points=current_points - reward_item.price_coin,
+            ledger_id=new_ledger_entry.id
+        )
+
+    except HTTPException as http_exc:
+        await db.rollback()
+        raise http_exc # HTTP 예외는 그대로 다시 발생시킴
+        
+    except Exception as e:
+        await db.rollback()
+        # 그 외 예외는 500 오류로 처리
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during transaction: {e}"
+        )
 
 @router.get("/rewards", response_model=PaginatedResponse[RewardHistoryItem])
 async def get_rewards_history(
