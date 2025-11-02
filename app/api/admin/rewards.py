@@ -65,6 +65,26 @@ async def read_store_rewards(
         total=total
     )
 
+# 🚩 [추가] 특정 리워드 상품 상세 조회 API (405 오류 해결)
+@router.get("/{reward_id}", response_model=StoreRewardResponse)
+async def read_store_reward_by_id(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    reward_id: uuid.UUID,
+    current_admin: Admin = Depends(deps.get_current_admin)
+):
+    """
+    (관리자) 특정 리워드 상품의 상세 정보를 조회합니다.
+    """
+    result = await db.execute(select(StoreReward).where(StoreReward.id == reward_id))
+    reward = result.scalar_one_or_none()
+    
+    if not reward:
+        raise HTTPException(status_code=404, detail="Reward not found")
+        
+    return StoreRewardResponse.model_validate(reward)
+
+
 @router.patch("/{reward_id}", response_model=StoreRewardResponse)
 async def update_store_reward(
     *,
@@ -72,7 +92,7 @@ async def update_store_reward(
     reward_id: uuid.UUID,
     reward_in: StoreRewardUpdate,
     current_admin: Admin = Depends(deps.get_current_admin)
-) -> StoreRewardResponse: # [3. 수정] 반환 타입을 Pydantic 모델로
+) -> StoreRewardResponse:
     """
     (관리자) 특정 리워드 상품의 정보를 수정합니다. (화면설계서 29p 리스트의 '수정' 버튼)
     """
@@ -89,7 +109,6 @@ async def update_store_reward(
     await db.commit()
     await db.refresh(reward)
     
-    # [4. 수정] DB 객체 대신 Pydantic 모델을 반환 (Lazy Loading 방지)
     return StoreRewardResponse.model_validate(reward)
 
 @router.delete("/{reward_id}", status_code=204)
