@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from .reward import StoreRewardResponse # 위에서 정의한 리워드 응답 스키마 import
@@ -39,5 +39,4 @@ class StoreResponse(StoreBase):
     id: uuid.UUID
     rewards: List[StoreRewardResponse] = []
     
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

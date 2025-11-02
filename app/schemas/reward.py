@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 import uuid
 
@@ -31,5 +31,4 @@ class StoreRewardResponse(StoreRewardBase):
     id: uuid.UUID
     store_id: uuid.UUID
     
-    class Config:
-        orm_mode = True # SQLAlchemy 모델을 Pydantic 모델로 자동 변환
+    model_config = ConfigDict(from_attributes=True)
