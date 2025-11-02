@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 
 from app import models, schemas
