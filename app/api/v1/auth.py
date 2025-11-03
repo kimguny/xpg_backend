@@ -57,7 +57,7 @@ async def _create_user(register_request: RegisterRequest, db: AsyncSession) -> U
         if existing_email.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Email already exists"
+                detail="이미 사용중인 이메일입니다"
             )
     
     # 사용자 생성

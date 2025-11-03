@@ -47,7 +47,7 @@ async def update_my_profile(
         if existing_email.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Email already exists"
+                detail="이미 사용중인 이메일입니다"
             )
         # 이메일이 변경되면 인증 상태 초기화
         current_user.email = new_email
