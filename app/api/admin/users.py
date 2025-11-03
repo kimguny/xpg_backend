@@ -188,12 +188,14 @@ async def adjust_user_points(
 ):
     """
     사용자 포인트 수동 조정 (관리자 전용)
-
+    
     - **coin_delta**: 지급할 포인트 (양수) 또는 회수할 포인트 (음수)
     - **note**: 조정 사유 (rewards_ledger에 기록됨)
     """
     
-    # 1. 사용자 조회
+    # 1. 사용자 조회 및 락 (포인트 합산 쿼리를 사용하지 않으므로, 이 시점의 profile을 사용)
+    # 캐시가 최신인지 확인하기 위해, 현재 User 객체와 최신 Ledger 잔액을 확인하는
+    # 별도 쿼리가 이상적이나, 개발 단계에서는 User 객체의 profile을 바로 사용합니다.
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
@@ -205,12 +207,30 @@ async def adjust_user_points(
         user_id=user.id,
         coin_delta=request.coin_delta,
         note=request.note
-        # content_id, stage_id 등은 None (관리자 수동 조정이므로)
     )
     
     db.add(new_ledger_entry)
     
+    # --- [ 핵심 추가 로직 ] ---
+    
+    # 3. profile 캐시 업데이트 준비
+    # 현재 profile 포인트 잔액을 가져옵니다. (없으면 0)
+    current_points = user.profile.get('points', 0) if user.profile else 0
+    new_points = current_points + request.coin_delta
+    
+    # 4. user.profile 필드에 새 잔액 저장
+    if user.profile is None:
+        user.profile = {}
+        
+    user.profile['points'] = new_points
+    
+    # User 모델 변경 사항을 세션에 반영
+    db.add(user)
+    
+    # --- [ 핵심 추가 로직 끝 ] ---
+    
     try:
+        # 5. RewardLedger와 User 업데이트를 동시에 커밋
         await db.commit()
         await db.refresh(new_ledger_entry)
         
@@ -221,5 +241,5 @@ async def adjust_user_points(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to adjust points: {e}"
+            detail=f"Failed to adjust points and update profile: {e}"
         )
