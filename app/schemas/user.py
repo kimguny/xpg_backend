@@ -44,8 +44,23 @@ class UserResponse(BaseModel):
     email_verified_at: Optional[datetime] = None
     status: str
     profile: Optional[Dict[str, Any]] = None
+    points: int = 0
     created_at: datetime
     last_active_at: Optional[datetime] = None
+
+    # [추가] SQLAlchemy 모델에서 Pydantic 모델로 변환 시 points 값을 추출하는 로직
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        # SQLAlchemy 모델 객체(obj)에서 데이터를 가져옴
+        data = super().model_validate(obj, **kwargs).model_dump()
+        
+        # obj.profile (JSONB 필드)에서 'points' 값을 추출
+        if hasattr(obj, 'profile') and isinstance(obj.profile, dict):
+            # profile.points가 있다면 사용하고, 없다면 기본값 0 사용
+            data['points'] = obj.profile.get('points', 0)
+        
+        # Pydantic 객체로 재구성하여 반환
+        return cls(**data)
     
     @property
     def display_name(self) -> str:
