@@ -188,21 +188,16 @@ async def adjust_user_points(
 ):
     """
     사용자 포인트 수동 조정 (관리자 전용)
-    
-    - **coin_delta**: 지급할 포인트 (양수) 또는 회수할 포인트 (음수)
-    - **note**: 조정 사유 (rewards_ledger에 기록됨)
     """
     
-    # 1. 사용자 조회 및 락 (포인트 합산 쿼리를 사용하지 않으므로, 이 시점의 profile을 사용)
-    # 캐시가 최신인지 확인하기 위해, 현재 User 객체와 최신 Ledger 잔액을 확인하는
-    # 별도 쿼리가 이상적이나, 개발 단계에서는 User 객체의 profile을 바로 사용합니다.
+    # 1. 사용자 조회
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 2. RewardLedger에 기록 생성
+    # 2. RewardLedger에 기록 생성 (트랜잭션에 포함)
     new_ledger_entry = RewardLedger(
         user_id=user.id,
         coin_delta=request.coin_delta,
@@ -211,27 +206,39 @@ async def adjust_user_points(
     
     db.add(new_ledger_entry)
     
-    # --- [ 핵심 추가 로직 ] ---
+    # --- [ 핵심 수정 로직 ] ---
     
     # 3. profile 캐시 업데이트 준비
     # 현재 profile 포인트 잔액을 가져옵니다. (없으면 0)
     current_points = user.profile.get('points', 0) if user.profile else 0
     new_points = current_points + request.coin_delta
     
-    # 4. user.profile 필드에 새 잔액 저장
+    # 4. user.profile 필드에 새 잔액 저장 (Dict 업데이트)
+    # SQLAlchemy가 JSONB 변경을 확실하게 감지하도록 명시적으로 UPDATE 문 실행
+    
+    # profile 딕셔너리 준비
     if user.profile is None:
-        user.profile = {}
+        updated_profile = {}
+    else:
+        updated_profile = user.profile.copy()
         
-    user.profile['points'] = new_points
+    updated_profile['points'] = new_points
     
-    # User 모델 변경 사항을 세션에 반영
-    db.add(user)
-    
-    # --- [ 핵심 추가 로직 끝 ] ---
+    # 명시적 UPDATE 쿼리 실행 (JSONB 필드 업데이트 보장)
+    await db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(profile=updated_profile)
+    )
+
+    # --- [ 핵심 수정 로직 끝 ] ---
     
     try:
         # 5. RewardLedger와 User 업데이트를 동시에 커밋
+        # User update는 이미 위에서 execute()로 실행되었으므로, 이제 ledger만 커밋합니다.
         await db.commit()
+        
+        # new_ledger_entry가 commit된 후 refresh
         await db.refresh(new_ledger_entry)
         
         # 생성된 보상 내역 반환
