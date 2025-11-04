@@ -30,7 +30,11 @@ class RewardLookupResponse(BaseModel):
     
     store: StoreSimpleResponse # 매장 정보
 
-# [2. 추가] 상품 교환(결제) 성공 응답 모델
+# 상품 교환(결제) 요청 본문 (Request Body)
+class RewardRedeemRequest(BaseModel):
+    reward_id: UUID
+
+# 상품 교환(결제) 성공 응답 모델
 class RewardRedeemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
@@ -77,25 +81,26 @@ async def lookup_reward_info(
 
     return reward
 
-# [3. 추가] Task 1: 상품 교환(재고/포인트 체크) API
+# 상품 교환(재고/포인트 체크) API
 @router.post(
-    "/{reward_id}/redeem", 
+    "/redeem",
     response_model=RewardRedeemResponse,
     summary="상품(리워드) 교환 (재고/포인트 체크)"
 )
 async def redeem_reward(
-    reward_id: UUID,
+    request: RewardRedeemRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
     """
     상품을 교환(구매)합니다.
-    재고 체크 및 사용자 포인트 체크 로직을 수행합니다.
+    reward_id를 Request Body로 받습니다.
     """
+    
+    reward_id = request.reward_id
     
     try:
         # 1. 상품 정보 조회 (DB 잠금)
-        #    - with_for_update=True: 다른 요청이 동시에 재고를 수정하지 못하게 잠금
         query = (
             select(StoreReward)
             .where(StoreReward.id == reward_id)
@@ -111,17 +116,14 @@ async def redeem_reward(
             raise HTTPException(status_code=400, detail="현재 교환 불가능한 상품입니다.")
 
         # 2. 재고 체크
-        if reward.stock_qty is not None: # 재고가 null이 아니면 (무제한이 아니면)
+        if reward.stock_qty is not None: 
             if reward.stock_qty <= 0:
                 raise HTTPException(status_code=400, detail="상품 재고가 소진되었습니다.")
             
-            # 재고 차감 (트랜잭션이므로 commit 시점에 반영됨)
             reward.stock_qty -= 1
-            # [수정] merge 대신 add 사용 (session.add(reward)도 동일하게 작동)
             db.add(reward)
 
         # 3. 사용자 포인트 체크
-        #    - 사용자 정보도 잠금 (포인트 동시 차감 방지)
         user_to_update = await db.get(User, user.id, with_for_update=True)
         if user_to_update is None:
             raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
@@ -137,11 +139,9 @@ async def redeem_reward(
         if user_to_update.profile is None:
             user_to_update.profile = {}
         
-        # SQLAlchemy가 JSONB 변경을 감지하도록 복사 후 수정
         updated_profile = user_to_update.profile.copy()
         updated_profile["points"] = new_points
             
-        # SQLAlchemy가 JSONB 변경을 감지하도록 명시적 업데이트 (중요)
         await db.execute(
             update(User)
             .where(User.id == user.id)
@@ -151,22 +151,20 @@ async def redeem_reward(
         # 5. RewardLedger에 사용 내역 기록
         new_ledger_entry = RewardLedger(
             user_id=user.id,
-            coin_delta= -abs(reward.price_coin), # 포인트 차감 (음수)
+            coin_delta= -abs(reward.price_coin),
             note=f"상품 교환: {reward.product_name}",
-            store_reward_id=reward.id # [중요] 어떤 상품을 교환했는지 ID 기록
+            store_reward_id=reward.id
         )
         db.add(new_ledger_entry)
         
-        # 트랜잭션이 커밋되기 전에 ledger ID를 가져오기 위해 flush
         await db.flush([new_ledger_entry]) 
 
-        # 6. [수정] 수동 커밋
+        # 6. 커밋
         await db.commit()
     
     except Exception as e:
-        # 7. [수정] 수동 롤백
+        # 7. 롤백
         await db.rollback()
-        # 이미 발생한 HTTPException은 그대로 re-raise, 그 외는 500
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
@@ -175,3 +173,4 @@ async def redeem_reward(
         ledger_id=new_ledger_entry.id,
         remaining_points=new_points
     )
+
