@@ -23,10 +23,25 @@ router = APIRouter()
 
 @router.get("", response_model=UserResponse)
 async def get_my_profile(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db) # [수정] db 의존성 추가
 ):
-    """내 프로필 조회"""
-    return UserResponse.model_validate(current_user)
+    """내 프로필 조회 (보유 포인트 실시간 합산 포함)"""
+    
+    # [추가] rewards_ledger에서 coin_delta의 총합을 계산
+    points_sum_result = await db.execute(
+        select(func.sum(RewardLedger.coin_delta))
+        .where(RewardLedger.user_id == current_user.id)
+    )
+    current_points = points_sum_result.scalar_one_or_none() or 0
+    
+    # User 객체를 Pydantic 모델로 변환
+    response_data = UserResponse.model_validate(current_user)
+    
+    # 실시간 포인트로 덮어쓰기
+    response_data.points = current_points
+    
+    return response_data
 
 @router.patch("", response_model=UserResponse)
 async def update_my_profile(
@@ -54,9 +69,24 @@ async def update_my_profile(
         current_user.email_verified = False
         current_user.email_verified_at = None
 
-    # 2. 닉네임 변경
-    if "nickname" in update_data:
-        current_user.nickname = update_data["nickname"]
+    # --- [ 닉네임 중복 체크 추가 ] ---
+    # 2. 닉네임 변경 시 중복 검사
+    new_nickname = update_data.get("nickname")
+    if new_nickname and new_nickname != current_user.nickname:
+        # 자기 자신을 제외한 사용자 중에서 닉네임 중복 검사
+        existing_nickname = await db.execute(
+            select(User).where(
+                User.nickname == new_nickname,
+                User.id != current_user.id 
+            )
+        )
+        if existing_nickname.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="이미 사용중인 닉네임입니다"
+            )
+        current_user.nickname = new_nickname
+    # --- [ 닉네임 중복 체크 끝 ] ---
 
     # 3. 프로필 이미지 URL 변경
     if "profile_image_url" in update_data:
@@ -72,7 +102,19 @@ async def update_my_profile(
     try:
         await db.commit()
         await db.refresh(current_user)
-        return UserResponse.model_validate(current_user)
+        
+        # [추가] 프로필 수정 후에도 'points'를 실시간으로 계산해서 반환
+        points_sum_result = await db.execute(
+            select(func.sum(RewardLedger.coin_delta))
+            .where(RewardLedger.user_id == current_user.id)
+        )
+        current_points = points_sum_result.scalar_one_or_none() or 0
+        
+        response_data = UserResponse.model_validate(current_user)
+        response_data.points = current_points
+        
+        return response_data
+        
     except Exception as e:
         await db.rollback()
         raise HTTPException(
@@ -220,8 +262,7 @@ async def upload_profile_image(
         )
 
     try:
-        # 2. [수정] 실제 파일 업로드 유틸리티 호출
-        # 'users/{user_id}/profile' 경로에 저장
+        # 2. 실제 파일 업로드 유틸리티 호출
         uploaded_url = await upload_file_to_storage(
             file=file, 
             path_prefix=f"users/{current_user.id}/profile"
@@ -239,12 +280,21 @@ async def upload_profile_image(
         await db.commit()
         await db.refresh(current_user)
         
-        return UserResponse.model_validate(current_user)
+        # [추가] 이미지 업로드 후에도 'points'를 실시간으로 계산해서 반환
+        points_sum_result = await db.execute(
+            select(func.sum(RewardLedger.coin_delta))
+            .where(RewardLedger.user_id == current_user.id)
+        )
+        current_points = points_sum_result.scalar_one_or_none() or 0
+        
+        response_data = UserResponse.model_validate(current_user)
+        response_data.points = current_points
+        
+        return response_data
         
     except Exception as e:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            # [수정] 에러 메시지 상세화
             detail=f"이미지 업로드 및 프로필 업데이트 실패: {str(e)}"
         )
