@@ -312,11 +312,11 @@ async def delete_nfc_tag(
     return {"deleted": True, "nfc_id": nfc_id}
 
 
-# [Task 3] UDID로 NFC 태그 조회 API (기존 코드에 있던 함수)
+# UDID로 NFC 태그 조회 API (기존 코드에 있던 함수)
 @router.get(
     "/by-udid", 
     response_model=NFCTagResponse, # [수정 4] NFCTagResponse 사용
-    summary="[Task 3] UDID로 기등록된 NFC 태그 조회",
+    summary="UDID로 기등록된 NFC 태그 조회",
     responses={
         404: {"description": "해당 UDID로 등록된 태그 없음"}
     }
