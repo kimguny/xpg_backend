@@ -31,4 +31,8 @@ class StoreRewardResponse(StoreRewardBase):
     id: uuid.UUID
     store_id: uuid.UUID
     
+    # DB에 저장된 QR 코드 URL 필드 추가
+    qr_image_url: Optional[str] = Field(None, description="생성된 QR 코드 이미지 URL")
+    
     model_config = ConfigDict(from_attributes=True)
+
