@@ -14,6 +14,10 @@ class StoreReward(Base):
     product_name = Column(Text, nullable=False)
     product_desc = Column(Text, nullable=True)
     image_url = Column(Text, nullable=True)
+    
+    # QR 코드 URL 저장 컬럼
+    qr_image_url = Column(Text, nullable=True) 
+    
     price_coin = Column(Integer, nullable=False, default=0)
     stock_qty = Column(Integer, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
@@ -26,5 +30,3 @@ class StoreReward(Base):
 
     def __repr__(self):
         return f"<StoreReward(id={self.id}, name='{self.product_name}')>"
-
-# UserReward 모델은 user_rewards 테이블이 확인되면 다시 작업하겠습니다.
