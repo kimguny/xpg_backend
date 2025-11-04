@@ -20,7 +20,7 @@ class StoreSimpleResponse(BaseModel):
 
 class RewardLookupResponse(BaseModel):
     """
-    [Task 2] 상품 조회 API 응답 모델
+    상품 조회 API 응답 모델
     (이름, 이미지 url, 상품포인트, 매장이름)
     """
     model_config = ConfigDict(from_attributes=True)
@@ -49,7 +49,7 @@ router = APIRouter()
 @router.get(
     "/{reward_id}", 
     response_model=RewardLookupResponse,
-    summary="[Task 2] 상품(리워드) 정보 조회 (QR 스캔 시)"
+    summary="상품(리워드) 정보 조회 (QR 스캔 시)"
 )
 async def lookup_reward_info(
     reward_id: UUID,
@@ -84,7 +84,7 @@ async def lookup_reward_info(
 @router.post(
     "/{reward_id}/redeem", 
     response_model=RewardRedeemResponse,
-    summary="[Task 1] 상품(리워드) 교환 (재고/포인트 체크)"
+    summary="상품(리워드) 교환 (재고/포인트 체크)"
 )
 async def redeem_reward(
     reward_id: UUID,
@@ -93,7 +93,7 @@ async def redeem_reward(
 ):
     """
     상품을 교환(구매)합니다.
-    [Task 1] 재고 체크 및 사용자 포인트 체크 로직을 수행합니다.
+    재고 체크 및 사용자 포인트 체크 로직을 수행합니다.
     """
     
     async with db.begin(): # [중요] 트랜잭션 시작
@@ -113,7 +113,7 @@ async def redeem_reward(
         if not reward.is_active:
             raise HTTPException(status_code=400, detail="현재 교환 불가능한 상품입니다.")
 
-        # 2. [Task 1] 재고 체크
+        # 2. 재고 체크
         if reward.stock_qty is not None: # 재고가 null이 아니면 (무제한이 아니면)
             if reward.stock_qty <= 0:
                 raise HTTPException(status_code=400, detail="상품 재고가 소진되었습니다.")
@@ -122,7 +122,7 @@ async def redeem_reward(
             reward.stock_qty -= 1
             await db.merge(reward)
 
-        # 3. [Task 1] 사용자 포인트 체크
+        # 3. 사용자 포인트 체크
         #    - 사용자 정보도 잠금 (포인트 동시 차감 방지)
         user_to_update = await db.get(User, user.id, with_for_update=True)
         if user_to_update is None:
