@@ -5,13 +5,10 @@ from sqlalchemy import select, update
 from uuid import UUID
 from typing import Optional
 
-from app.api.deps import get_db, get_current_user # [주의] get_current_admin이 아님
-# [1. 추가] User, StoreReward, Store, RewardLedger 모델 임포트
+from app.api.deps import get_db, get_current_user
 from app.models import User, StoreReward, Store, RewardLedger 
 
 from pydantic import BaseModel, ConfigDict
-
-# --- Pydantic Schemas (응답 모델) ---
 
 class StoreSimpleResponse(BaseModel):
     """상품 조회 시 포함될 최소한의 매장 정보"""
@@ -96,7 +93,7 @@ async def redeem_reward(
     재고 체크 및 사용자 포인트 체크 로직을 수행합니다.
     """
     
-    async with db.begin(): # [중요] 트랜잭션 시작
+    try:
         # 1. 상품 정보 조회 (DB 잠금)
         #    - with_for_update=True: 다른 요청이 동시에 재고를 수정하지 못하게 잠금
         query = (
@@ -120,7 +117,8 @@ async def redeem_reward(
             
             # 재고 차감 (트랜잭션이므로 commit 시점에 반영됨)
             reward.stock_qty -= 1
-            await db.merge(reward)
+            # [수정] merge 대신 add 사용 (session.add(reward)도 동일하게 작동)
+            db.add(reward)
 
         # 3. 사용자 포인트 체크
         #    - 사용자 정보도 잠금 (포인트 동시 차감 방지)
@@ -133,18 +131,21 @@ async def redeem_reward(
         if user_points < reward.price_coin:
             raise HTTPException(status_code=400, detail=f"포인트가 부족합니다. (보유: {user_points}P, 필요: {reward.price_coin}P)")
         
-        # 4. 사용자 포인트 차감
+        # 4. 사용자 포인트 차감 (캐시 업데이트)
         new_points = user_points - reward.price_coin
-        if user_to_update.profile:
-            user_to_update.profile["points"] = new_points
-        else:
-            user_to_update.profile = {"points": new_points}
+        
+        if user_to_update.profile is None:
+            user_to_update.profile = {}
+        
+        # SQLAlchemy가 JSONB 변경을 감지하도록 복사 후 수정
+        updated_profile = user_to_update.profile.copy()
+        updated_profile["points"] = new_points
             
         # SQLAlchemy가 JSONB 변경을 감지하도록 명시적 업데이트 (중요)
         await db.execute(
             update(User)
             .where(User.id == user.id)
-            .values(profile=user_to_update.profile)
+            .values(profile=updated_profile)
         )
 
         # 5. RewardLedger에 사용 내역 기록
@@ -159,7 +160,16 @@ async def redeem_reward(
         # 트랜잭션이 커밋되기 전에 ledger ID를 가져오기 위해 flush
         await db.flush([new_ledger_entry]) 
 
-        # 6. 트랜잭션 커밋 (async with db.begin()이 끝나면 자동 커밋)
+        # 6. [수정] 수동 커밋
+        await db.commit()
+    
+    except Exception as e:
+        # 7. [수정] 수동 롤백
+        await db.rollback()
+        # 이미 발생한 HTTPException은 그대로 re-raise, 그 외는 500
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
     
     return RewardRedeemResponse(
         ledger_id=new_ledger_entry.id,
