@@ -26,7 +26,9 @@ class NFCTagLookupResponse(BaseModel):
     media_url: Optional[str] = None
     link_url: Optional[str] = None
     tap_message: Optional[str] = None
-    point_reward: int # 포인트가 있다는 것만 알려줌 (보안상 0 또는 양수로)
+    point_reward: int
+    floor_location: Optional[str] = None
+    category: Optional[str] = None
     
     @classmethod
     def model_validate(cls, obj, **kwargs):
