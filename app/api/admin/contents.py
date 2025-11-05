@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, text, func, and_
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
-from app.models import Content, ContentPrerequisite
+from app.models import Content, ContentPrerequisite, Stage
 from app.schemas.content import (
     ContentCreate,
     ContentUpdate,
@@ -16,7 +16,7 @@ from app.schemas.common import PaginatedResponse
 
 router = APIRouter()
 
-def format_content_response(content: Content) -> ContentResponse:
+def format_content_response(content: Content, active_stage_count: int = 0) -> ContentResponse:
     center_point_dict = None
     if content.center_point and hasattr(content.center_point, 'x'):
         center_point_dict = {
@@ -42,7 +42,8 @@ def format_content_response(content: Content) -> ContentResponse:
         end_at=content.end_at,
         stage_count=content.stage_count,
         is_sequential=content.is_sequential,
-        is_open=content.is_open
+        is_open=content.is_open,
+        active_stage_count=active_stage_count
     )
 
 @router.post("", response_model=ContentResponse)
@@ -76,7 +77,7 @@ async def create_content(
     await db.commit()
     await db.refresh(content)
     
-    return format_content_response(content)
+    return format_content_response(content, 0)
 
 @router.patch("/{content_id}", response_model=ContentResponse)
 async def update_content(
@@ -106,7 +107,7 @@ async def update_content(
     await db.commit()
     await db.refresh(content)
     
-    return format_content_response(content)
+    return format_content_response(content, 0) # 수정 시에는 active_stage_count를 0으로 반환 (필요시 여기도 쿼리 추가)
 
 @router.post("/{content_id}/next", response_model=ContentResponse)
 async def connect_next_content(
@@ -168,7 +169,19 @@ async def get_contents_admin(
     db: AsyncSession = Depends(get_db), 
     current_admin=Depends(get_current_admin)
 ):
-    query = select(Content)
+    
+    # [수정] 활성화된 스테이지 수를 세는 서브쿼리
+    active_stage_count_subq = (
+        select(func.count(Stage.id))
+        .where(Stage.content_id == Content.id, Stage.is_open == True)
+        .correlate(Content)
+        .scalar_subquery()
+        .label("active_stage_count")
+    )
+    
+    # [수정] 기본 쿼리에 서브쿼리 추가
+    query = select(Content, active_stage_count_subq)
+    
     count_query = select(func.count(Content.id))
     conditions = []
     
@@ -194,10 +207,11 @@ async def get_contents_admin(
     query = query.offset(offset).limit(size).order_by(Content.created_at.desc())
     
     result = await db.execute(query)
-    contents = result.scalars().all()
+    content_rows = result.all() # (Content, active_stage_count) 튜플 리스트
     
+    # [수정] format_content_response에 active_stage_count 전달
     return PaginatedResponse(
-        items=[format_content_response(c) for c in contents],
+        items=[format_content_response(c, active_count) for c, active_count in content_rows],
         page=page,
         size=size,
         total=total
@@ -209,11 +223,22 @@ async def get_content_admin(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    result = await db.execute(select(Content).where(Content.id == content_id))
-    content = result.scalar_one_or_none()
-    if not content:
+    # [수정] 상세 조회 시에도 활성화된 스테이지 수 계산
+    active_stage_count_subq = (
+        select(func.count(Stage.id))
+        .where(Stage.content_id == content_id, Stage.is_open == True)
+        .scalar_subquery()
+    )
+    
+    query = select(Content, active_stage_count_subq).where(Content.id == content_id)
+    result = await db.execute(query)
+    row = result.first()
+    
+    if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
-    return format_content_response(content)
+    
+    content, active_count = row
+    return format_content_response(content, active_count)
 
 @router.delete("/{content_id}")
 async def delete_content(
@@ -242,6 +267,18 @@ async def toggle_content_open(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
         
     content.is_open = not content.is_open
-    await db.commit()
-    await db.refresh(content)
+    
+    try:
+        await db.commit()
+        await db.refresh(content)
+    except Exception as e:
+        await db.rollback()
+        # [수정] DB 제약조건 오류를 HINT와 함께 반환
+        if "RaiseError" in str(e) and "required TOP-LEVEL stages" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="콘텐츠를 활성화할 수 없습니다. 스테이지 요구 조건을 확인하세요."
+            )
+        raise e
+        
     return {"content_id": str(content.id), "is_open": content.is_open}

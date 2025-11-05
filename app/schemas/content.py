@@ -56,6 +56,7 @@ class ContentResponse(ContentBase):
     # [추가] 이미지 URL 필드 (ContentBase에서 상속됨)
     
     # [수정] Pydantic V2 스타일
+    active_stage_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
 class ContentListResponse(BaseModel):
