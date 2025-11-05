@@ -4,6 +4,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import asyncio
 import os
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import check_db_connection, init_db
@@ -37,6 +38,11 @@ if not os.path.exists(static_dir):
     os.makedirs(static_dir)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+UPLOAD_DIR = Path("/var/www/xpg/uploads/images") 
+MEDIA_URL_PREFIX = "/media/images" 
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(MEDIA_URL_PREFIX, StaticFiles(directory=UPLOAD_DIR), name="media")
 
 @app.on_event("startup")
 async def startup_event():
