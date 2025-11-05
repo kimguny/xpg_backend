@@ -8,7 +8,7 @@ import uuid
 from app import models, schemas
 from app.api import deps
 
-from app.models import Admin, StoreReward
+from app.models import Admin, StoreReward, Store
 from app.schemas.common import PaginatedResponse
 from app.schemas.reward import StoreRewardResponse, StoreRewardUpdate
 
@@ -29,7 +29,10 @@ async def read_store_rewards(
     (관리자) 모든 매장의 리워드(상품) 목록을 조회합니다.
     """
     
-    query = select(StoreReward)
+    query = (
+        select(StoreReward)
+        .options(selectinload(StoreReward.store))
+    )
     count_query = select(func.count(StoreReward.id))
     
     conditions = []
@@ -72,7 +75,12 @@ async def read_store_reward_by_id(
     """
     (관리자) 특정 리워드 상품의 상세 정보를 조회합니다.
     """
-    result = await db.execute(select(StoreReward).where(StoreReward.id == reward_id))
+    query = (
+        select(StoreReward)
+        .where(StoreReward.id == reward_id)
+        .options(selectinload(StoreReward.store))
+    )
+    result = await db.execute(query)
     reward = result.scalar_one_or_none()
     
     if not reward:
@@ -92,7 +100,11 @@ async def update_store_reward(
     """
     (관리자) 특정 리워드 상품의 정보를 수정합니다.
     """
-    result = await db.execute(select(StoreReward).where(StoreReward.id == reward_id))
+    result = await db.execute(
+        select(StoreReward)
+        .where(StoreReward.id == reward_id)
+        .options(selectinload(StoreReward.store))
+    )
     reward = result.scalar_one_or_none()
     if not reward:
         raise HTTPException(status_code=404, detail="Reward not found")
@@ -164,17 +176,13 @@ async def generate_reward_qr_code(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"QR Code generation failed: {e}")
 
-    # --- [ 핵심 수정 로직 ] ---
-    # 4. 생성된 QR 코드 URL을 DB에 저장
     reward.qr_image_url = qr_image_url
     db.add(reward)
     try:
         await db.commit()
     except Exception as e:
         await db.rollback()
-        # QR 생성은 성공했으나 DB 저장이 실패한 경우
         raise HTTPException(status_code=500, detail=f"QR URL DB save failed: {e}")
-    # --- [ 수정 완료 ] ---
 
     return {
         "qr_image_url": qr_image_url,

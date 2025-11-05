@@ -2,6 +2,10 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 import uuid
 
+class StoreSimpleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    store_name: str
+
 # 공통 필드
 class StoreRewardBase(BaseModel):
     product_name: str = Field(..., description="상품명")
@@ -33,7 +37,7 @@ class StoreRewardResponse(StoreRewardBase):
     id: uuid.UUID
     store_id: uuid.UUID
     
-    # DB에 저장된 QR 코드 URL 필드 추가
     qr_image_url: Optional[str] = Field(None, description="생성된 QR 코드 이미지 URL")
+    store: StoreSimpleResponse
     
     model_config = ConfigDict(from_attributes=True)
