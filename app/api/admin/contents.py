@@ -17,25 +17,24 @@ from app.schemas.common import PaginatedResponse
 router = APIRouter()
 
 def format_content_response(content: Content) -> ContentResponse:
-    """Content 모델을 ContentResponse Pydantic 모델로 변환"""
     center_point_dict = None
-    # PostGIS geography 타입에서 좌표를 안전하게 추출
     if content.center_point and hasattr(content.center_point, 'x'):
         center_point_dict = {
             "lon": float(content.center_point.x),
             "lat": float(content.center_point.y)
         }
 
-    # SQLAlchemy 객체의 속성을 Pydantic 모델 필드에 직접 매핑합니다.
     return ContentResponse(
         id=content.id,
         title=content.title,
         description=content.description,
+        thumbnail_url=content.thumbnail_url,
+        background_image_url=content.background_image_url,
         content_type=content.content_type,
         exposure_slot=content.exposure_slot,
         is_always_on=content.is_always_on,
         reward_coin=content.reward_coin,
-        center_point=center_point_dict, # 변환된 딕셔너리를 사용
+        center_point=center_point_dict,
         has_next_content=content.has_next_content,
         next_content_id=content.next_content_id,
         created_at=content.created_at,
@@ -52,7 +51,6 @@ async def create_content(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """콘텐츠 생성"""
     center_point_sql = None
     if content_data.center_point:
         center_point_sql = text(f"ST_GeogFromText('POINT({content_data.center_point.lon} {content_data.center_point.lat})')")
@@ -60,6 +58,8 @@ async def create_content(
     content = Content(
         title=content_data.title,
         description=content_data.description,
+        thumbnail_url=content_data.thumbnail_url,
+        background_image_url=content_data.background_image_url,
         content_type=content_data.content_type,
         exposure_slot=content_data.exposure_slot,
         is_always_on=content_data.is_always_on,
@@ -85,7 +85,6 @@ async def update_content(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """콘텐츠 수정"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     
@@ -93,6 +92,14 @@ async def update_content(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     
     update_data = content_data.model_dump(exclude_unset=True)
+    
+    if "center_point" in update_data:
+        point_data = update_data.pop("center_point")
+        if point_data:
+            content.center_point = text(f"ST_GeogFromText('POINT({point_data['lon']} {point_data['lat']})')")
+        else:
+            content.center_point = None
+            
     for field, value in update_data.items():
         setattr(content, field, value)
     
@@ -108,7 +115,6 @@ async def connect_next_content(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """후속 콘텐츠 연결"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
@@ -132,7 +138,6 @@ async def set_content_prerequisites(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """선행 콘텐츠 일괄 설정"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
@@ -163,7 +168,6 @@ async def get_contents_admin(
     db: AsyncSession = Depends(get_db), 
     current_admin=Depends(get_current_admin)
 ):
-    """관리자용 콘텐츠 목록 조회"""
     query = select(Content)
     count_query = select(func.count(Content.id))
     conditions = []
@@ -205,7 +209,6 @@ async def get_content_admin(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """관리자용 콘텐츠 상세 조회"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
@@ -218,7 +221,6 @@ async def delete_content(
     db: AsyncSession = Depends(get_db),
     current_admin=Depends(get_current_admin)
 ):
-    """콘텐츠 삭제"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
@@ -234,11 +236,10 @@ async def toggle_content_open(
     db: AsyncSession = Depends(get_db),
     current_admin=Depends(get_current_admin)
 ):
-    """콘텐츠 오픈/클로즈 토글"""
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
-        raise HTTPException(status_code=status.HTTP_4_NOT_FOUND, detail="Content not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
         
     content.is_open = not content.is_open
     await db.commit()
