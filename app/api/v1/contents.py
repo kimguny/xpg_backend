@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, text
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+import uuid
 
 from app.api.deps import get_db, get_current_user
 from app.models import Content, UserContentProgress, User
@@ -197,16 +198,14 @@ async def join_content(
 
 class StageListResponse(BaseModel):
     """스테이지 목록 응답 (lockState 포함)"""
-    id: str
+    id: uuid.UUID
     stage_no: str
     title: str
     description: Optional[str] = None
     is_hidden: bool = False
     lock_state: str
     uses_nfc: bool = False
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/{content_id}/stages", response_model=List[StageListResponse])
 async def get_content_stages(
@@ -259,6 +258,14 @@ async def get_content_stages(
         if stage.is_hidden and lock_state == "locked":
             continue
         
-        response_stages.append(StageListResponse.model_validate(stage, from_attributes=True, context={"lock_state": lock_state}))
-    
+        stage_data = {
+            "id": stage.id,
+            "stage_no": stage.stage_no,
+            "title": stage.title,
+            "description": stage.description,
+            "is_hidden": stage.is_hidden,
+            "uses_nfc": stage.uses_nfc,
+            "lock_state": lock_state
+        }
+        response_stages.append(StageListResponse.model_validate(stage_data))    
     return response_stages
