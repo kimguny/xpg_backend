@@ -18,7 +18,7 @@ async def create_store(
     current_admin: models.Admin = Depends(deps.get_current_admin)
 ) -> schemas.StoreResponse: # [1. 수정] 반환 타입을 Pydantic 모델로 변경
     """
-    (관리자) 새로운 매장을 생성합니다. (화면설계서 32p '매장 등록')
+    (관리자) 새로운 매장을 생성합니다.
     """
     db_store = models.Store(**store_in.dict())
     db.add(db_store)
@@ -49,11 +49,9 @@ async def read_stores(
     skip: int = 0,
     limit: int = 100,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> List[schemas.StoreResponse]: # [1. 수정] 반환 타입을 Pydantic 스키마 리스트로 명시
+) -> List[schemas.StoreResponse]:
     """
     (관리자) 매장 목록을 조회합니다. (화면설계서 31p '매장 리스트')
-    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading하고,
-    Pydantic 모델을 수동으로 생성하여 반환합니다.
     """
     
     # .options(selectinload(models.Store.rewards))는 그대로 유지
@@ -104,7 +102,6 @@ async def read_store(
 ) -> schemas.StoreResponse: # [1. 수정] 반환 타입을 Pydantic 모델로
     """
     (관리자) 특정 매장의 상세 정보를 조회합니다.
-    [수정됨] Lazy Loading 오류를 방지하기 위해 'rewards'를 Eager Loading합니다.
     """
     
     # [2. 수정] 쿼리에 selectinload 옵션 추가
@@ -229,7 +226,7 @@ async def create_store_reward(
     current_admin: models.Admin = Depends(deps.get_current_admin)
 ) -> models.StoreReward:
     """
-    (관리자) 특정 매장에 새로운 리워드 상품을 추가합니다. (화면설계서 33p '상품 추가')
+    (관리자) 특정 매장에 새로운 리워드 상품을 추가합니다.
     """
     result = await db.execute(select(models.Store).where(models.Store.id == store_id))
     store = result.scalar_one_or_none()
