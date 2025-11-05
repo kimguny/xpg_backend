@@ -1,56 +1,130 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, and_, or_
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 
 from app.api.deps import get_db, get_current_user
 from app.models import User, StoreReward, Store, RewardLedger 
+from app.schemas.common import PaginatedResponse
 
 from pydantic import BaseModel, ConfigDict
 
+# --- Pydantic Schemas (응답 모델) ---
+
 class StoreSimpleResponse(BaseModel):
-    """상품 조회 시 포함될 최소한의 매장 정보"""
     model_config = ConfigDict(from_attributes=True)
     store_name: str
 
 class RewardLookupResponse(BaseModel):
-    """
-    상품 조회 API 응답 모델
-    (이름, 이미지 url, 상품포인트, 매장이름)
-    """
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID
     product_name: str
     image_url: Optional[str] = None
     price_coin: int
-    stock_qty: Optional[int] = None # 재고 (null이면 무제한)
+    stock_qty: Optional[int] = None 
     
-    store: StoreSimpleResponse # 매장 정보
+    store: StoreSimpleResponse 
 
-# 상품 교환(결제) 요청 본문 (Request Body)
 class RewardRedeemRequest(BaseModel):
     reward_id: UUID
 
-# 상품 교환(결제) 성공 응답 모델
 class RewardRedeemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     success: bool = True
     message: str = "상품 교환이 완료되었습니다."
-    ledger_id: int # 생성된 RewardLedger의 ID
-    remaining_points: int # 사용자의 남은 포인트
+    ledger_id: int 
+    remaining_points: int 
 
 # --- API Router ---
 
 router = APIRouter()
 
+
+@router.get(
+    "", 
+    response_model=PaginatedResponse[RewardLookupResponse],
+    summary="[App] 전체 리워드(상품) 목록 조회"
+)
+async def list_rewards_for_app(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+    category: Optional[str] = Query(None, description="카테고리 필터"),
+    store_id: Optional[UUID] = Query(None, description="특정 매장 ID 필터")
+):
+    """
+    앱에서 사용 가능한 (활성화된) 모든 리워드 상품 목록을 조회합니다.
+    """
+    
+    now = datetime.utcnow()
+    
+    # 1. 기본 쿼리 (매장 정보 JOIN)
+    query = (
+        select(StoreReward)
+        .join(StoreReward.store)
+        .options(joinedload(StoreReward.store))
+    )
+    count_query = select(func.count(StoreReward.id)).join(StoreReward.store)
+    
+    # 2. 기본 조건 (활성화된 상품 및 매장)
+    conditions = [
+        StoreReward.is_active == True,
+        Store.show_products == True,
+        or_(
+            Store.is_always_on == True,
+            and_(
+                Store.display_start_at <= now,
+                Store.display_end_at >= now
+            )
+        )
+    ]
+    
+    # 3. 필터링 조건
+    if category:
+        conditions.append(StoreReward.category == category)
+        
+    if store_id:
+        conditions.append(StoreReward.store_id == store_id)
+        
+    # 4. 조건 적용
+    query = query.where(and_(*conditions))
+    count_query = count_query.where(and_(*conditions))
+
+    # 5. 전체 개수 조회
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # 6. 정렬 (노출 순서, 최신순)
+    query = query.order_by(
+        StoreReward.exposure_order.asc(), 
+        StoreReward.created_at.desc()
+    )
+    
+    # 7. 페이지네이션
+    offset = (page - 1) * size
+    query = query.offset(offset).limit(size)
+    
+    result = await db.execute(query)
+    items = result.scalars().all()
+    
+    return PaginatedResponse(
+        items=items,
+        page=page,
+        size=size,
+        total=total
+    )
+
+
 @router.get(
     "/{reward_id}", 
     response_model=RewardLookupResponse,
-    summary="상품(리워드) 정보 조회 (QR 스캔 시)"
+    summary="[App] 상품(리워드) 상세 정보 조회 (QR 스캔 시)"
 )
 async def lookup_reward_info(
     reward_id: UUID,
@@ -63,7 +137,7 @@ async def lookup_reward_info(
     
     query = (
         select(StoreReward)
-        .options(joinedload(StoreReward.store)) # 매장 정보(store)를 함께 로드
+        .options(joinedload(StoreReward.store))
         .where(StoreReward.id == reward_id)
     )
     
@@ -81,24 +155,24 @@ async def lookup_reward_info(
 
     return reward
 
-# 상품 교환(재고/포인트 체크) API
+
 @router.post(
-    "/redeem",
+    "/redeem", 
     response_model=RewardRedeemResponse,
-    summary="상품(리워드) 교환 (재고/포인트 체크)"
+    summary="[App] 상품(리워드) 교환 (재고/포인트 체크)"
 )
 async def redeem_reward(
-    request: RewardRedeemRequest,
+    request: RewardRedeemRequest, 
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
     """
-    상품을 교환(구매)합니다.
-    reward_id를 Request Body로 받습니다.
+    상품을 교환(구매)합니다. reward_id를 Request Body로 받습니다.
     """
     
     reward_id = request.reward_id
     
+    # async with db.begin() 제거
     try:
         # 1. 상품 정보 조회 (DB 잠금)
         query = (
@@ -173,4 +247,3 @@ async def redeem_reward(
         ledger_id=new_ledger_entry.id,
         remaining_points=new_points
     )
-
