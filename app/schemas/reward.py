@@ -11,6 +11,7 @@ class StoreRewardBase(BaseModel):
     stock_qty: Optional[int] = Field(None, description="재고 수량 (null이면 무제한)")
     is_active: bool = Field(True, description="활성 상태")
     exposure_order: Optional[int] = Field(None, description="노출 우선순위")
+    category: Optional[str] = Field(None, description="카테고리")
 
 # 리워드 생성 시 요청 Body
 class StoreRewardCreate(StoreRewardBase):
@@ -25,6 +26,7 @@ class StoreRewardUpdate(BaseModel):
     stock_qty: Optional[int] = None
     is_active: Optional[bool] = None
     exposure_order: Optional[int] = None
+    category: Optional[str] = None
 
 # API 응답 시 사용될 모델
 class StoreRewardResponse(StoreRewardBase):
@@ -35,4 +37,3 @@ class StoreRewardResponse(StoreRewardBase):
     qr_image_url: Optional[str] = Field(None, description="생성된 QR 코드 이미지 URL")
     
     model_config = ConfigDict(from_attributes=True)
-
