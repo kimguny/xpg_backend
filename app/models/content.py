@@ -18,6 +18,10 @@ class Content(Base):
     # 기본 정보
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
+
+    # 이미지 썸네일, 배경
+    thumbnail_url = Column(Text, nullable=True)
+    background_image_url = Column(Text, nullable=True)
     
     # 콘텐츠 유형 (story|domination)
     content_type = Column(Text, nullable=False)

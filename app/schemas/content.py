@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict
 import uuid
 from datetime import datetime
@@ -10,6 +10,11 @@ class GeoPoint(BaseModel):
 class ContentBase(BaseModel):
     title: str = Field(..., max_length=255)
     description: Optional[str] = None
+    
+    # [추가] 이미지 URL 필드
+    thumbnail_url: Optional[str] = None
+    background_image_url: Optional[str] = None
+    
     content_type: str = Field(..., pattern="^(story|domination)$")
     exposure_slot: str = Field("story", pattern="^(story|event)$")
     is_always_on: bool = Field(False)
@@ -26,6 +31,11 @@ class ContentCreate(ContentBase):
 class ContentUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
+    
+    # [추가] 이미지 URL 필드
+    thumbnail_url: Optional[str] = None
+    background_image_url: Optional[str] = None
+    
     content_type: Optional[str] = Field(None, pattern="^(story|domination)$")
     exposure_slot: Optional[str] = Field(None, pattern="^(story|event)$")
     is_always_on: Optional[bool] = None
@@ -43,13 +53,19 @@ class ContentResponse(ContentBase):
     created_at: datetime
     is_open: bool
     
-    class Config:
-        from_attributes = True
+    # [추가] 이미지 URL 필드 (ContentBase에서 상속됨)
+    
+    # [수정] Pydantic V2 스타일
+    model_config = ConfigDict(from_attributes=True)
 
 class ContentListResponse(BaseModel):
     """콘텐츠 목록 응답 (사용자용)"""
     id: uuid.UUID
     title: str
+    
+    # [추가] 썸네일 URL 필드
+    thumbnail_url: Optional[str] = None
+    
     content_type: str
     exposure_slot: str
     is_always_on: bool
@@ -57,8 +73,8 @@ class ContentListResponse(BaseModel):
     center_point: Optional[Dict[str, float]] = None
     has_next_content: bool
     
-    class Config:
-        from_attributes = True
+    # [수정] Pydantic V2 스타일
+    model_config = ConfigDict(from_attributes=True)
 
 class ContentNextConnect(BaseModel):
     """후속 콘텐츠 연결"""
