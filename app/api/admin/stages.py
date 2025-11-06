@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, text, and_
+from sqlalchemy import select, delete, text, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
@@ -65,10 +65,6 @@ async def get_stages_by_content(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """
-    특정 콘텐츠에 속한 모든 스테이지 목록을 조회합니다.
-    (힌트, 퍼즐, 해금 설정 포함)
-    """
     
     stmt = (
         select(Stage)
@@ -265,10 +261,6 @@ async def get_stage(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """
-    ID로 특정 스테이지의 상세 정보를 조회합니다.
-    (힌트, 퍼즐, 해금 설정 포함)
-    """
     
     stmt = (
         select(Stage)
@@ -648,3 +640,58 @@ async def update_unlock_config(
             "bottom_text": unlock_config.bottom_text
         }
     }
+
+@router.delete(
+    "/hints/{hint_id}", 
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_hint(
+    hint_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin = Depends(get_current_admin)
+):
+    """
+    특정 힌트를 삭제합니다.
+    """
+    
+    async with db.begin():
+        # 1. 힌트 조회
+        hint_result = await db.execute(select(StageHint).where(StageHint.id == hint_id))
+        hint = hint_result.scalar_one_or_none()
+        
+        if not hint:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Hint not found"
+            )
+        
+        stage_id = hint.stage_id
+        had_nfc = bool(hint.nfc_id)
+
+        # 2. 힌트 삭제
+        await db.delete(hint)
+        await db.flush() # 삭제를 트랜잭션에 반영
+
+        # 3. 이 힌트가 NFC를 사용했다면, 부모 Stage의 uses_nfc 상태 갱신
+        if had_nfc:
+            # 3-1. 부모 스테이지 조회
+            stage_result = await db.execute(select(Stage).where(Stage.id == stage_id))
+            stage = stage_result.scalar_one_or_none()
+            
+            if stage:
+                # 3-2. 이 스테이지에 NFC를 사용하는 다른 힌트가 남아있는지 확인
+                other_nfc_hints = await db.execute(
+                    select(func.count(StageHint.id))
+                    .where(
+                        StageHint.stage_id == stage_id,
+                        StageHint.nfc_id.is_not(None)
+                    )
+                )
+                nfc_hint_count = other_nfc_hints.scalar() or 0
+                
+                # 3-3. 방금 삭제한 힌트가 마지막 NFC 힌트였다면,
+                if nfc_hint_count == 0:
+                    stage.uses_nfc = False
+                    db.add(stage)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
