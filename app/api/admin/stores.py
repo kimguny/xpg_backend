@@ -8,6 +8,9 @@ import uuid
 from app import models, schemas
 from app.api import deps
 
+from app.schemas import reward as schemas_reward
+from app.schemas import store as schemas_store
+
 router = APIRouter()
 
 @router.post("/", response_model=schemas.StoreResponse, status_code=201)
@@ -217,14 +220,14 @@ async def delete_store(
 
 # --- Store Rewards ---
 
-@router.post("/{store_id}/rewards", response_model=schemas.StoreRewardResponse, status_code=201)
+@router.post("/{store_id}/rewards", response_model=schemas_reward.StoreRewardResponse, status_code=201)
 async def create_store_reward(
     *,
     db: AsyncSession = Depends(deps.get_db),
     store_id: uuid.UUID,
-    reward_in: schemas.StoreRewardCreate,
+    reward_in: schemas_reward.StoreRewardCreate,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> schemas.StoreRewardResponse:
+) -> schemas_reward.StoreRewardResponse:
     """
     (관리자) 특정 매장에 새로운 리워드 상품을 추가합니다.
     """
@@ -240,20 +243,14 @@ async def create_store_reward(
     await db.commit()
     await db.refresh(db_reward)
     
-    # [수정] Pydantic 모델을 수동으로 생성하여 반환 (Lazy Loading 방지)
-    # 'store' 객체는 이미 로드했음
-    
-    # app/schemas/reward.py에 정의된 StoreSimpleResponse를 생성
-    store_simple_data = schemas.StoreSimpleResponse(
+    # [수정] schemas.reward.StoreSimpleResponse 사용
+    store_simple_data = schemas_reward.StoreSimpleResponse(
         store_name=store.store_name,
-        description=store.description,
-        address=store.address,
-        latitude=store.latitude,
-        longitude=store.longitude
+        # description, address 등은 reward 스키마에 정의된 것만 사용
     )
 
-    # app/schemas/reward.py에 정의된 StoreRewardResponse를 생성
-    return schemas.StoreRewardResponse(
+    # [수정] schemas.reward.StoreRewardResponse 사용
+    return schemas_reward.StoreRewardResponse(
         id=db_reward.id,
         store_id=db_reward.store_id,
         product_name=db_reward.product_name,
@@ -265,5 +262,5 @@ async def create_store_reward(
         exposure_order=db_reward.exposure_order,
         qr_image_url=db_reward.qr_image_url,
         category=db_reward.category,
-        store=store_simple_data # 이미 로드된 'store' 객체 주입
+        store=store_simple_data
     )
