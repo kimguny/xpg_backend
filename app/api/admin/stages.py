@@ -654,7 +654,7 @@ async def delete_hint(
     특정 힌트를 삭제합니다.
     """
     
-    async with db.begin():
+    try:
         # 1. 힌트 조회
         hint_result = await db.execute(select(StageHint).where(StageHint.id == hint_id))
         hint = hint_result.scalar_one_or_none()
@@ -670,8 +670,7 @@ async def delete_hint(
 
         # 2. 힌트 삭제
         await db.delete(hint)
-        await db.flush() # 삭제를 트랜잭션에 반영
-
+        
         # 3. 이 힌트가 NFC를 사용했다면, 부모 Stage의 uses_nfc 상태 갱신
         if had_nfc:
             # 3-1. 부모 스테이지 조회
@@ -679,12 +678,13 @@ async def delete_hint(
             stage = stage_result.scalar_one_or_none()
             
             if stage:
-                # 3-2. 이 스테이지에 NFC를 사용하는 다른 힌트가 남아있는지 확인
+                # 3-2. (수정) 방금 삭제한 힌트를 "제외"하고 NFC를 사용하는 다른 힌트가 있는지 확인
                 other_nfc_hints = await db.execute(
                     select(func.count(StageHint.id))
                     .where(
                         StageHint.stage_id == stage_id,
-                        StageHint.nfc_id.is_not(None)
+                        StageHint.nfc_id.is_not(None),
+                        StageHint.id != hint_id  # 현재 삭제 중인 힌트 제외
                     )
                 )
                 nfc_hint_count = other_nfc_hints.scalar() or 0
@@ -693,5 +693,15 @@ async def delete_hint(
                 if nfc_hint_count == 0:
                     stage.uses_nfc = False
                     db.add(stage)
+
+        # 4. 커밋
+        await db.commit()
+
+    except Exception as e:
+        # 5. 롤백
+        await db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
