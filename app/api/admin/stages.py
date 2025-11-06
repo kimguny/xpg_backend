@@ -107,7 +107,6 @@ async def get_stages_by_content(
                     cooldown_sec=hint.cooldown_sec, reward_coin=hint.reward_coin, nfc=nfc_info, images=image_list
                 ))
 
-        # 힌트 목록(hints_response)에 NFC 정보가 있는지 확인
         has_nfc = any(hint.nfc is not None for hint in hints_response)
 
         puzzles_response = []
@@ -323,7 +322,6 @@ async def get_stage(
                 images=image_list
             ))
 
-    # 힌트 목록(hints_response)에 NFC 정보가 있는지 확인
     has_nfc = any(hint.nfc is not None for hint in hints_response)
 
     puzzles_response = []
@@ -463,7 +461,6 @@ async def create_hint(
                 detail="NFC tag already bound to another hint in this stage"
             )
         
-        # [수정] 힌트에 NFC가 연결되면, 부모 Stage의 uses_nfc를 True로 설정
         stage.uses_nfc = True
         db.add(stage)
 
@@ -481,7 +478,32 @@ async def create_hint(
     )
     
     db.add(hint)
-    await db.commit()
+    
+    image_list = []
+    
+    try:
+        await db.flush([hint])
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create hint (flush): {e}")
+
+    if hint_data.images:
+        for img_data in hint_data.images:
+            image = HintImage(
+                hint_id=hint.id,
+                order_no=img_data.get("order_no", 1),
+                url=img_data.get("url", ""),
+                alt_text=img_data.get("alt_text", "")
+            )
+            db.add(image)
+            image_list.append({"url": image.url, "alt_text": image.alt_text, "order_no": image.order_no})
+
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to commit hint and images: {e}")
+    
     await db.refresh(hint)
     
     nfc_info = None
@@ -503,7 +525,7 @@ async def create_hint(
         cooldown_sec=hint.cooldown_sec,
         reward_coin=hint.reward_coin,
         nfc=nfc_info,
-        images=[]
+        images=image_list
     )
 
 @router.put("/{hint_id}/images")

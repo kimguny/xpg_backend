@@ -1,15 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class LocationSchema(BaseModel):
-    """위치 정보"""
     lon: float = Field(..., description="경도", ge=-180, le=180)
     lat: float = Field(..., description="위도", ge=-90, le=90)
     radius_m: Optional[int] = Field(None, description="반경(미터)", ge=1)
 
 class StageCreate(BaseModel):
-    """스테이지 생성 요청"""
     stage_no: str = Field(..., min_length=1, max_length=10, description="스테이지 번호")
     title: str = Field(..., min_length=1, max_length=200, description="스테이지 제목")
     description: Optional[str] = Field(None, max_length=1000, description="스테이지 설명")
@@ -26,7 +24,6 @@ class StageCreate(BaseModel):
     meta: Optional[Dict[str, Any]] = Field(None, description="추가 메타데이터")
 
 class StageUpdate(BaseModel):
-    """스테이지 수정 요청"""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     start_button_text: Optional[str] = Field(None, max_length=50)
@@ -41,8 +38,7 @@ class StageUpdate(BaseModel):
     meta: Optional[Dict[str, Any]] = None
 
 class StageResponse(BaseModel):
-    """스테이지 응답"""
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
     
     id: str
     content_id: str
@@ -56,7 +52,7 @@ class StageResponse(BaseModel):
     time_limit_min: Optional[int] = None
     clear_need_nfc_count: Optional[int] = None
     clear_time_attack_sec: Optional[int] = None
-    location: Optional[Dict[str, Any]] = None  # geography를 dict로 변환
+    location: Optional[Dict[str, Any]] = None
     unlock_on_enter_radius: bool = False
     is_open: bool = True
     unlock_stage_id: Optional[str] = None
@@ -70,13 +66,14 @@ class HintCreate(BaseModel):
     preset: str = Field(..., description="표시 프리셋")
     order_no: int = Field(..., description="표시 순서", ge=1)
     text_blocks: List[str] = Field([], description="텍스트 블록들", max_items=3)
+    images: List[Dict[str, Any]] = Field([], description="이미지 목록 (예: [{'url': '...', 'alt_text': '...'}])")
     cooldown_sec: int = Field(0, description="쿨다운(초)", ge=0)
     reward_coin: int = Field(0, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID")
 
 class HintResponse(BaseModel):
     """힌트 응답"""
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
     
     id: str
     stage_id: str
@@ -87,8 +84,8 @@ class HintResponse(BaseModel):
     text_block_3: Optional[str] = None
     cooldown_sec: int = 0
     reward_coin: int = 0
-    nfc: Optional[Dict[str, Any]] = None  # NFC 태그 정보
-    images: List[Dict[str, Any]] = []  # 힌트 이미지들
+    nfc: Optional[Dict[str, Any]] = None
+    images: List[Dict[str, Any]] = []
 
 class HintImageUpdate(BaseModel):
     """힌트 이미지 일괄 업데이트"""
