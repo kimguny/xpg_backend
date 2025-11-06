@@ -224,7 +224,7 @@ async def create_store_reward(
     store_id: uuid.UUID,
     reward_in: schemas.StoreRewardCreate,
     current_admin: models.Admin = Depends(deps.get_current_admin)
-) -> models.StoreReward:
+) -> schemas.StoreRewardResponse:
     """
     (관리자) 특정 매장에 새로운 리워드 상품을 추가합니다.
     """
@@ -233,8 +233,37 @@ async def create_store_reward(
     if not store:
         raise HTTPException(status_code=404, detail="Parent store not found")
 
-    db_reward = models.StoreReward(**reward_in.dict(), store_id=store_id)
+    reward_data = reward_in.dict()
+    db_reward = models.StoreReward(**reward_data, store_id=store_id)
+    
     db.add(db_reward)
     await db.commit()
     await db.refresh(db_reward)
-    return db_reward
+    
+    # [수정] Pydantic 모델을 수동으로 생성하여 반환 (Lazy Loading 방지)
+    # 'store' 객체는 이미 로드했음
+    
+    # app/schemas/reward.py에 정의된 StoreSimpleResponse를 생성
+    store_simple_data = schemas.StoreSimpleResponse(
+        store_name=store.store_name,
+        description=store.description,
+        address=store.address,
+        latitude=store.latitude,
+        longitude=store.longitude
+    )
+
+    # app/schemas/reward.py에 정의된 StoreRewardResponse를 생성
+    return schemas.StoreRewardResponse(
+        id=db_reward.id,
+        store_id=db_reward.store_id,
+        product_name=db_reward.product_name,
+        product_desc=db_reward.product_desc,
+        image_url=db_reward.image_url,
+        price_coin=db_reward.price_coin,
+        stock_qty=db_reward.stock_qty,
+        is_active=db_reward.is_active,
+        exposure_order=db_reward.exposure_order,
+        qr_image_url=db_reward.qr_image_url,
+        category=db_reward.category,
+        store=store_simple_data # 이미 로드된 'store' 객체 주입
+    )
