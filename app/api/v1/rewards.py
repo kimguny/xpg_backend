@@ -17,12 +17,17 @@ from pydantic import BaseModel, ConfigDict
 class StoreSimpleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     store_name: str
+    description: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class RewardLookupResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID
     product_name: str
+    product_desc: Optional[str] = None
     image_url: Optional[str] = None
     price_coin: int
     stock_qty: Optional[int] = None 
@@ -64,7 +69,6 @@ async def list_rewards_for_app(
     
     now = datetime.utcnow()
     
-    # 1. 기본 쿼리 (매장 정보 JOIN)
     query = (
         select(StoreReward)
         .join(StoreReward.store)
@@ -72,7 +76,6 @@ async def list_rewards_for_app(
     )
     count_query = select(func.count(StoreReward.id)).join(StoreReward.store)
     
-    # 2. 기본 조건 (활성화된 상품 및 매장)
     conditions = [
         StoreReward.is_active == True,
         Store.show_products == True,
@@ -85,28 +88,23 @@ async def list_rewards_for_app(
         )
     ]
     
-    # 3. 필터링 조건
     if category:
         conditions.append(StoreReward.category == category)
         
     if store_id:
         conditions.append(StoreReward.store_id == store_id)
         
-    # 4. 조건 적용
     query = query.where(and_(*conditions))
     count_query = count_query.where(and_(*conditions))
 
-    # 5. 전체 개수 조회
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
     
-    # 6. 정렬 (노출 순서, 최신순)
     query = query.order_by(
         StoreReward.exposure_order.asc(), 
         StoreReward.created_at.desc()
     )
     
-    # 7. 페이지네이션
     offset = (page - 1) * size
     query = query.offset(offset).limit(size)
     
@@ -172,9 +170,7 @@ async def redeem_reward(
     
     reward_id = request.reward_id
     
-    # async with db.begin() 제거
     try:
-        # 1. 상품 정보 조회 (DB 잠금)
         query = (
             select(StoreReward)
             .where(StoreReward.id == reward_id)
@@ -189,7 +185,6 @@ async def redeem_reward(
         if not reward.is_active:
             raise HTTPException(status_code=400, detail="현재 교환 불가능한 상품입니다.")
 
-        # 2. 재고 체크
         if reward.stock_qty is not None: 
             if reward.stock_qty <= 0:
                 raise HTTPException(status_code=400, detail="상품 재고가 소진되었습니다.")
@@ -197,7 +192,6 @@ async def redeem_reward(
             reward.stock_qty -= 1
             db.add(reward)
 
-        # 3. 사용자 포인트 체크
         user_to_update = await db.get(User, user.id, with_for_update=True)
         if user_to_update is None:
             raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
@@ -207,11 +201,10 @@ async def redeem_reward(
         if user_points < reward.price_coin:
             raise HTTPException(status_code=400, detail=f"포인트가 부족합니다. (보유: {user_points}P, 필요: {reward.price_coin}P)")
         
-        # 4. 사용자 포인트 차감 (캐시 업데이트)
         new_points = user_points - reward.price_coin
         
         if user_to_update.profile is None:
-            user_to_update.profile = {}
+             user_to_update.profile = {}
         
         updated_profile = user_to_update.profile.copy()
         updated_profile["points"] = new_points
@@ -222,7 +215,6 @@ async def redeem_reward(
             .values(profile=updated_profile)
         )
 
-        # 5. RewardLedger에 사용 내역 기록
         new_ledger_entry = RewardLedger(
             user_id=user.id,
             coin_delta= -abs(reward.price_coin),
@@ -233,11 +225,9 @@ async def redeem_reward(
         
         await db.flush([new_ledger_entry]) 
 
-        # 6. 커밋
         await db.commit()
     
     except Exception as e:
-        # 7. 롤백
         await db.rollback()
         if isinstance(e, HTTPException):
             raise e
