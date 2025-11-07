@@ -12,20 +12,21 @@ from app.schemas.content import (
     ContentListResponse,
     ContentResponse,
     ContentProgressResponse,
-    ContentJoinResponse
+    ContentJoinResponse,
+    GeoPoint
 )
 from app.models import Stage, UserStageProgress
 
 router = APIRouter()
 
-def format_center_point(content: Content) -> Optional[dict]:
+def format_center_point(content: Content) -> Optional[GeoPoint]:
     if not content.center_point or not hasattr(content.center_point, 'longitude'):
         return None
     try:
-        return {
-            "lon": float(content.center_point.longitude),
-            "lat": float(content.center_point.latitude)
-        }
+        return GeoPoint(
+            lon=float(content.center_point.longitude),
+            lat=float(content.center_point.latitude)
+        )
     except Exception:
         return None
 
@@ -66,8 +67,11 @@ async def get_contents(
     result = await db.execute(query)
     contents = result.scalars().all()
     
-    return [
-        ContentListResponse(
+    response_items = []
+    for content in contents:
+        center_point_obj = format_center_point(content)
+        
+        response_items.append(ContentListResponse(
             id=str(content.id),
             title=content.title,
             description=content.description,
@@ -77,13 +81,13 @@ async def get_contents(
             exposure_slot=content.exposure_slot,
             is_always_on=content.is_always_on,
             reward_coin=content.reward_coin,
-            center_point=format_center_point(content),
+            center_point=center_point_obj.model_dump() if center_point_obj else None,
             start_at=content.start_at,
             end_at=content.end_at,
             has_next_content=content.has_next_content
-        )
-        for content in contents
-    ]
+        ))
+    
+    return response_items
 
 @router.get("/{content_id}", response_model=ContentResponse)
 async def get_content_detail(

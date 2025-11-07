@@ -10,19 +10,24 @@ from app.schemas.content import (
     ContentUpdate,
     ContentResponse,
     ContentNextConnect,
-    ContentPrerequisitesUpdate
+    ContentPrerequisitesUpdate,
+    GeoPoint
 )
 from app.schemas.common import PaginatedResponse
 
 router = APIRouter()
 
 def format_content_response(content: Content, active_stage_count: int = 0) -> ContentResponse:
-    center_point_dict = None
+    center_point_obj = None # 변수명 변경
     if content.center_point and hasattr(content.center_point, 'longitude'):
-        center_point_dict = {
-            "lon": float(content.center_point.longitude),
-            "lat": float(content.center_point.latitude)
-        }
+        try:
+            # [수정] dict 대신 GeoPoint 객체 생성
+            center_point_obj = GeoPoint(
+                lon=float(content.center_point.longitude),
+                lat=float(content.center_point.latitude)
+            )
+        except Exception:
+            center_point_obj = None
 
     return ContentResponse(
         id=content.id,
@@ -34,7 +39,7 @@ def format_content_response(content: Content, active_stage_count: int = 0) -> Co
         exposure_slot=content.exposure_slot,
         is_always_on=content.is_always_on,
         reward_coin=content.reward_coin,
-        center_point=center_point_dict,
+        center_point=center_point_obj,
         has_next_content=content.has_next_content,
         next_content_id=content.next_content_id,
         created_at=content.created_at,
