@@ -19,7 +19,6 @@ from app.models import Stage, UserStageProgress
 router = APIRouter()
 
 def format_center_point(content: Content) -> Optional[dict]:
-    """geography 타입의 center_point를 dict로 변환"""
     if not content.center_point or not hasattr(content.center_point, 'longitude'):
         return None
     try:
@@ -71,11 +70,16 @@ async def get_contents(
         ContentListResponse(
             id=str(content.id),
             title=content.title,
+            description=content.description,
+            thumbnail_url=content.thumbnail_url,
+            background_image_url=content.background_image_url,
             content_type=content.content_type,
             exposure_slot=content.exposure_slot,
             is_always_on=content.is_always_on,
             reward_coin=content.reward_coin,
             center_point=format_center_point(content),
+            start_at=content.start_at,
+            end_at=content.end_at,
             has_next_content=content.has_next_content
         )
         for content in contents
@@ -99,6 +103,8 @@ async def get_content_detail(
         id=str(content.id),
         title=content.title,
         description=content.description,
+        thumbnail_url=content.thumbnail_url,
+        background_image_url=content.background_image_url,
         content_type=content.content_type,
         exposure_slot=content.exposure_slot,
         is_always_on=content.is_always_on,
@@ -197,7 +203,6 @@ async def join_content(
     return ContentJoinResponse(joined=True, status="in_progress")
 
 class StageListResponse(BaseModel):
-    """스테이지 목록 응답 (lockState 포함)"""
     id: uuid.UUID
     stage_no: str
     title: str
@@ -267,5 +272,6 @@ async def get_content_stages(
             "uses_nfc": stage.uses_nfc,
             "lock_state": lock_state
         }
-        response_stages.append(StageListResponse.model_validate(stage_data))    
+        response_stages.append(StageListResponse.model_validate(stage_data))
+    
     return response_stages
