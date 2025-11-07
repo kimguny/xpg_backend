@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update
 from sqlalchemy.orm import selectinload
@@ -250,3 +250,33 @@ async def adjust_user_points(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to adjust points and update profile: {e}"
         )
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_by_admin(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin)
+):
+    """
+    (관리자) 특정 사용자를 영구적으로 삭제합니다. (Hard Delete)
+    """
+    
+    # 1. 사용자 조회
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. 사용자 삭제
+    try:
+        await db.delete(user)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {e}"
+        )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
