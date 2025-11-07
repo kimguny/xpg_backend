@@ -60,7 +60,7 @@ class ContentListResponse(BaseModel):
     exposure_slot: str
     is_always_on: bool
     reward_coin: int
-    center_point: Optional[GeoPoint] = None
+    center_point: Optional[Dict[str, float]] = None
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
     has_next_content: bool

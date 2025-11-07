@@ -65,10 +65,13 @@ async def get_contents(
     query = query.offset(offset).limit(size).order_by(Content.created_at.desc())
     
     result = await db.execute(query)
-    contents = result.scalars().all()
+    
+    # [수정] .scalars().all() 대신 .all()을 사용하여 Row 객체 리스트를 가져옵니다.
+    content_rows = result.all()
     
     response_items = []
-    for content in contents:
+    for row in content_rows:
+        content = row[0] # row[0]에 Content 객체가 들어있습니다.
         center_point_obj = format_center_point(content)
         
         response_items.append(ContentListResponse(
@@ -97,11 +100,15 @@ async def get_content_detail(
     """
     콘텐츠 상세 정보 조회
     """
-    result = await db.execute(select(Content).where(Content.id == content_id))
-    content = result.scalar_one_or_none()
     
-    if not content:
+    # [수정] .scalars().one_or_none() 대신 .first()를 사용합니다.
+    result = await db.execute(select(Content).where(Content.id == content_id))
+    row = result.first()
+    
+    if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
+    
+    content = row[0] # row[0]에 Content 객체가 들어있습니다.
     
     return ContentResponse(
         id=str(content.id),
@@ -130,9 +137,6 @@ async def get_content_progress(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    내 콘텐츠 진행상황 조회
-    """
     
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     if not content_result.scalar_one_or_none():
@@ -163,9 +167,6 @@ async def join_content(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    콘텐츠 참여 시작
-    """
     
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     content = content_result.scalar_one_or_none()
@@ -222,9 +223,6 @@ async def get_content_stages(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    콘텐츠의 스테이지 목록 조회 (사용자의 잠금 상태 포함)
-    """
     
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     if not content_result.scalar_one_or_none():
