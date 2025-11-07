@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, text, func, and_
-from geoalchemy2.functions import ST_X, ST_Y
+from geoalchemy2.functions import ST_Longitude, ST_Latitude
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
@@ -189,8 +189,8 @@ async def get_contents_admin(
     query = select(
         Content, 
         active_stage_count_subq,
-        ST_X(Content.center_point).label("lon"),
-        ST_Y(Content.center_point).label("lat")
+        ST_Longitude(Content.center_point).label("lon"),
+        ST_Latitude(Content.center_point).label("lat")
     )
     
     count_query = select(func.count(Content.id))
@@ -242,8 +242,8 @@ async def get_content_admin(
     query = select(
         Content, 
         active_stage_count_subq,
-        ST_X(Content.center_point).label("lon"),
-        ST_Y(Content.center_point).label("lat")
+        ST_Longitude(Content.center_point).label("lon"),
+        ST_Latitude(Content.center_point).label("lat")
     ).where(Content.id == content_id)
     
     result = await db.execute(query)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, text
-from geoalchemy2.functions import ST_X, ST_Y
+from geoalchemy2.functions import ST_Longitude, ST_Latitude
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
@@ -41,8 +41,8 @@ async def get_contents(
     """
     query = select(
         Content,
-        ST_X(Content.center_point).label("lon"),
-        ST_Y(Content.center_point).label("lat")
+        ST_Longitude(Content.center_point).label("lon"),
+        ST_Latitude(Content.center_point).label("lat")
     )
     
     conditions = []
@@ -104,8 +104,8 @@ async def get_content_detail(
     
     query = select(
         Content,
-        ST_X(Content.center_point).label("lon"),
-        ST_Y(Content.center_point).label("lat")
+        ST_Longitude(Content.center_point).label("lon"),
+        ST_Latitude(Content.center_point).label("lat")
     ).where(Content.id == content_id)
     
     result = await db.execute(query)
