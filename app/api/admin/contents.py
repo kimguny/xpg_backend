@@ -18,10 +18,10 @@ router = APIRouter()
 
 def format_content_response(content: Content, active_stage_count: int = 0) -> ContentResponse:
     center_point_dict = None
-    if content.center_point and hasattr(content.center_point, 'x'):
+    if content.center_point and hasattr(content.center_point, 'longitude'):
         center_point_dict = {
-            "lon": float(content.center_point.x),
-            "lat": float(content.center_point.y)
+            "lon": float(content.center_point.longitude),
+            "lat": float(content.center_point.latitude)
         }
 
     return ContentResponse(
