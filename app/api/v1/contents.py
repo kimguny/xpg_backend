@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, text
+from geoalchemy2.functions import ST_X, ST_Y
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
@@ -19,14 +20,11 @@ from app.models import Stage, UserStageProgress
 
 router = APIRouter()
 
-def format_center_point(content: Content) -> Optional[GeoPoint]:
-    if not content.center_point or not hasattr(content.center_point, 'x'):
+def format_center_point(lon: Optional[float], lat: Optional[float]) -> Optional[GeoPoint]:
+    if lon is None or lat is None:
         return None
     try:
-        return GeoPoint(
-            lon=float(content.center_point.x),
-            lat=float(content.center_point.y)
-        )
+        return GeoPoint(lon=lon, lat=lat)
     except Exception:
         return None
 
@@ -41,7 +39,12 @@ async def get_contents(
     """
     입장 가능한 콘텐츠 목록 조회
     """
-    query = select(Content)
+    query = select(
+        Content,
+        ST_X(Content.center_point).label("lon"),
+        ST_Y(Content.center_point).label("lat")
+    )
+    
     conditions = []
     
     if only_available:
@@ -65,14 +68,12 @@ async def get_contents(
     query = query.offset(offset).limit(size).order_by(Content.created_at.desc())
     
     result = await db.execute(query)
-    
-    # [수정] .scalars().all() 대신 .all()을 사용하여 Row 객체 리스트를 가져옵니다.
-    content_rows = result.all()
+    content_rows = result.all() # (Content, lon, lat) 튜플
     
     response_items = []
     for row in content_rows:
-        content = row[0] # row[0]에 Content 객체가 들어있습니다.
-        center_point_obj = format_center_point(content)
+        content, lon, lat = row
+        center_point_obj = format_center_point(lon, lat)
         
         response_items.append(ContentListResponse(
             id=str(content.id),
@@ -101,14 +102,19 @@ async def get_content_detail(
     콘텐츠 상세 정보 조회
     """
     
-    # [수정] .scalars().one_or_none() 대신 .first()를 사용합니다.
-    result = await db.execute(select(Content).where(Content.id == content_id))
+    query = select(
+        Content,
+        ST_X(Content.center_point).label("lon"),
+        ST_Y(Content.center_point).label("lat")
+    ).where(Content.id == content_id)
+    
+    result = await db.execute(query)
     row = result.first()
     
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     
-    content = row[0] # row[0]에 Content 객체가 들어있습니다.
+    content, lon, lat = row
     
     return ContentResponse(
         id=str(content.id),
@@ -120,7 +126,7 @@ async def get_content_detail(
         exposure_slot=content.exposure_slot,
         is_always_on=content.is_always_on,
         reward_coin=content.reward_coin,
-        center_point=format_center_point(content),
+        center_point=format_center_point(lon, lat),
         has_next_content=content.has_next_content,
         next_content_id=str(content.next_content_id) if content.next_content_id else None,
         created_at=content.created_at,

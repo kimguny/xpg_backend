@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, text, func, and_
+from geoalchemy2.functions import ST_X, ST_Y
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
@@ -17,14 +18,17 @@ from app.schemas.common import PaginatedResponse
 
 router = APIRouter()
 
-def format_content_response(content: Content, active_stage_count: int = 0) -> ContentResponse:
+def format_content_response(
+    content: Content, 
+    active_stage_count: int = 0, 
+    lon: Optional[float] = None, 
+    lat: Optional[float] = None
+) -> ContentResponse:
+    
     center_point_obj = None 
-    if content.center_point and hasattr(content.center_point, 'x'):
+    if lon is not None and lat is not None:
         try:
-            center_point_obj = GeoPoint(
-                lon=float(content.center_point.x),
-                lat=float(content.center_point.y)
-            )
+            center_point_obj = GeoPoint(lon=lon, lat=lat)
         except Exception:
             center_point_obj = None
 
@@ -174,7 +178,6 @@ async def get_contents_admin(
     current_admin=Depends(get_current_admin)
 ):
     
-    # [수정] 활성화된 스테이지 수를 세는 서브쿼리
     active_stage_count_subq = (
         select(func.count(Stage.id))
         .where(Stage.content_id == Content.id, Stage.is_open == True)
@@ -183,8 +186,12 @@ async def get_contents_admin(
         .label("active_stage_count")
     )
     
-    # [수정] 기본 쿼리에 서브쿼리 추가
-    query = select(Content, active_stage_count_subq)
+    query = select(
+        Content, 
+        active_stage_count_subq,
+        ST_X(Content.center_point).label("lon"),
+        ST_Y(Content.center_point).label("lat")
+    )
     
     count_query = select(func.count(Content.id))
     conditions = []
@@ -211,11 +218,10 @@ async def get_contents_admin(
     query = query.offset(offset).limit(size).order_by(Content.created_at.desc())
     
     result = await db.execute(query)
-    content_rows = result.all() # (Content, active_stage_count) 튜플 리스트
+    content_rows = result.all()
     
-    # [수정] format_content_response에 active_stage_count 전달
     return PaginatedResponse(
-        items=[format_content_response(c, active_count) for c, active_count in content_rows],
+        items=[format_content_response(c, active_count, lon, lat) for c, active_count, lon, lat in content_rows],
         page=page,
         size=size,
         total=total
@@ -227,22 +233,27 @@ async def get_content_admin(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    # [수정] 상세 조회 시에도 활성화된 스테이지 수 계산
     active_stage_count_subq = (
         select(func.count(Stage.id))
         .where(Stage.content_id == content_id, Stage.is_open == True)
         .scalar_subquery()
     )
     
-    query = select(Content, active_stage_count_subq).where(Content.id == content_id)
+    query = select(
+        Content, 
+        active_stage_count_subq,
+        ST_X(Content.center_point).label("lon"),
+        ST_Y(Content.center_point).label("lat")
+    ).where(Content.id == content_id)
+    
     result = await db.execute(query)
     row = result.first()
     
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     
-    content, active_count = row
-    return format_content_response(content, active_count)
+    content, active_count, lon, lat = row
+    return format_content_response(content, active_count, lon, lat)
 
 @router.delete("/{content_id}")
 async def delete_content(
