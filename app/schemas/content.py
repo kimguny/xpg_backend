@@ -51,8 +51,7 @@ class ContentResponse(ContentBase):
 
 class ContentListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-    
-    id: str # API 로직(str(content.id))과 일치시키기 위해 str로 변경
+    id: str
     title: str
     description: Optional[str] = None
     thumbnail_url: Optional[str] = None
@@ -61,7 +60,7 @@ class ContentListResponse(BaseModel):
     exposure_slot: str
     is_always_on: bool
     reward_coin: int
-    center_point: Optional[Dict[str, float]] = None
+    center_point: Optional[GeoPoint] = None
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
     has_next_content: bool
