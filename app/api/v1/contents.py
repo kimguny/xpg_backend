@@ -4,9 +4,7 @@ from sqlalchemy import select, and_, text, cast, func
 from geoalchemy2.functions import ST_X, ST_Y
 from geoalchemy2 import Geometry
 from typing import List, Optional
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict
-import uuid
+from datetime import datetime, timezone
 
 from app.api.deps import get_db, get_current_user
 from app.models import Content, UserContentProgress, User
@@ -49,7 +47,7 @@ async def get_contents(
     conditions = []
     
     if only_available:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc) # [2. 수정] utcnow() -> now(timezone.utc)
         conditions.append(Content.is_open == True)
         conditions.append(
             (Content.is_always_on == True) |
@@ -147,7 +145,7 @@ async def get_content_progress(
     
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     if not content_result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
+        raise HTTPException(status_code=status.HTTP_4404_NOT_FOUND, detail="Content not found")
     
     progress_result = await db.execute(
         select(UserContentProgress).where(
@@ -184,7 +182,7 @@ async def join_content(
     if not content.is_open:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Content is not open")
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc) # [3. 수정] utcnow() -> now(timezone.utc)
     if not content.is_always_on:
         if content.start_at and content.start_at > now:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Content has not started yet")
