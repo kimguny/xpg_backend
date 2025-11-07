@@ -18,13 +18,12 @@ from app.schemas.common import PaginatedResponse
 router = APIRouter()
 
 def format_content_response(content: Content, active_stage_count: int = 0) -> ContentResponse:
-    center_point_obj = None # 변수명 변경
-    if content.center_point and hasattr(content.center_point, 'longitude'):
+    center_point_obj = None 
+    if content.center_point and hasattr(content.center_point, 'x'):
         try:
-            # [수정] dict 대신 GeoPoint 객체 생성
             center_point_obj = GeoPoint(
-                lon=float(content.center_point.longitude),
-                lat=float(content.center_point.latitude)
+                lon=float(content.center_point.x),
+                lat=float(content.center_point.y)
             )
         except Exception:
             center_point_obj = None

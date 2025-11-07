@@ -20,12 +20,12 @@ from app.models import Stage, UserStageProgress
 router = APIRouter()
 
 def format_center_point(content: Content) -> Optional[GeoPoint]:
-    if not content.center_point or not hasattr(content.center_point, 'longitude'):
+    if not content.center_point or not hasattr(content.center_point, 'x'):
         return None
     try:
         return GeoPoint(
-            lon=float(content.center_point.longitude),
-            lat=float(content.center_point.latitude)
+            lon=float(content.center_point.x),
+            lat=float(content.center_point.y)
         )
     except Exception:
         return None
