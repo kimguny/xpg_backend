@@ -5,6 +5,8 @@ from geoalchemy2.functions import ST_X, ST_Y
 from geoalchemy2 import Geometry
 from typing import List, Optional
 from datetime import datetime, timezone
+from pydantic import BaseModel, ConfigDict
+import uuid
 
 from app.api.deps import get_db, get_current_user
 from app.models import Content, UserContentProgress, User
