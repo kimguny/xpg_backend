@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import uuid
 
 class LocationSchema(BaseModel):
     lon: float = Field(..., description="경도", ge=-180, le=180)
@@ -62,7 +63,6 @@ class StageResponse(BaseModel):
     created_at: datetime
 
 class HintCreate(BaseModel):
-    """힌트 생성 요청"""
     preset: str = Field(..., description="표시 프리셋")
     order_no: int = Field(..., description="표시 순서", ge=1)
     text_blocks: List[str] = Field([], description="텍스트 블록들", max_items=3)
@@ -71,8 +71,16 @@ class HintCreate(BaseModel):
     reward_coin: int = Field(0, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID")
 
+# [1. '힌트 수정' 스키마 추가]
+class HintUpdate(BaseModel):
+    preset: Optional[str] = Field(None, description="표시 프리셋")
+    text_blocks: Optional[List[str]] = Field(None, description="텍스트 블록들", max_items=3)
+    images: Optional[List[Dict[str, Any]]] = Field(None, description="이미지 목록")
+    cooldown_sec: Optional[int] = Field(None, description="쿨다운(초)", ge=0)
+    reward_coin: Optional[int] = Field(None, description="힌트 보상 코인", ge=0)
+    nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID (null로 설정하여 연결 해제 가능)")
+
 class HintResponse(BaseModel):
-    """힌트 응답"""
     model_config = ConfigDict(from_attributes=True)
     
     id: str
@@ -88,15 +96,12 @@ class HintResponse(BaseModel):
     images: List[Dict[str, Any]] = []
 
 class HintImageUpdate(BaseModel):
-    """힌트 이미지 일괄 업데이트"""
     images: List[Dict[str, Any]] = Field([], description="이미지 목록")
 
 class PuzzleConfig(BaseModel):
-    """퍼즐 설정"""
     puzzles: List[Dict[str, Any]] = Field([], description="퍼즐 목록")
 
 class UnlockConfig(BaseModel):
-    """해금 연출 설정"""
     preset: str = Field(..., description="프리셋: fullscreen|popup")
     next_action: str = Field(..., description="다음 액션: next_step|next_stage")
     title: Optional[str] = Field(None, description="서브 타이틀")
@@ -104,7 +109,6 @@ class UnlockConfig(BaseModel):
     bottom_text: Optional[str] = Field(None, description="하단 텍스트")
 
 class StageDetailResponse(StageResponse):
-    """스테이지 상세 응답 (힌트/퍼즐 포함)"""
     hints: List[HintResponse] = []
     puzzles: List[Dict[str, Any]] = []
     unlock_config: Optional[Dict[str, Any]] = None

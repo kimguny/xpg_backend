@@ -12,6 +12,7 @@ from app.schemas.stage import (
     StageResponse,
     StageDetailResponse,
     HintCreate,
+    HintUpdate,
     HintResponse,
     HintImageUpdate,
     PuzzleConfig,
@@ -59,6 +60,34 @@ def format_stage_response(stage: Stage) -> StageResponse:
         created_at=stage.created_at
     )
 
+def format_hint_response(hint: StageHint) -> HintResponse:
+    nfc_info = None
+    if hint.nfc:
+        nfc_info = {
+            "id": str(hint.nfc.id),
+            "udid": hint.nfc.udid,
+            "tag_name": hint.nfc.tag_name
+        }
+    
+    image_list = []
+    if hint.images:
+        sorted_images = sorted(hint.images, key=lambda img: img.order_no)
+        image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in sorted_images]
+
+    return HintResponse(
+        id=str(hint.id),
+        stage_id=str(hint.stage_id),
+        preset=hint.preset,
+        order_no=hint.order_no,
+        text_block_1=hint.text_block_1,
+        text_block_2=hint.text_block_2,
+        text_block_3=hint.text_block_3,
+        cooldown_sec=hint.cooldown_sec,
+        reward_coin=hint.reward_coin,
+        nfc=nfc_info,
+        images=image_list
+    )
+
 @router.get("/by-content/{content_id}", response_model=List[StageDetailResponse])
 async def get_stages_by_content(
     content_id: str,
@@ -88,20 +117,7 @@ async def get_stages_by_content(
         if stage.hints:
             sorted_hints = sorted(stage.hints, key=lambda h: h.order_no)
             for hint in sorted_hints:
-                nfc_info = None
-                if hint.nfc:
-                    nfc_info = {"id": str(hint.nfc.id), "udid": hint.nfc.udid, "tag_name": hint.nfc.tag_name}
-                
-                image_list = []
-                if hint.images:
-                    sorted_images = sorted(hint.images, key=lambda img: img.order_no)
-                    image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in sorted_images]
-
-                hints_response.append(HintResponse(
-                    id=str(hint.id), stage_id=str(hint.stage_id), preset=hint.preset, order_no=hint.order_no,
-                    text_block_1=hint.text_block_1, text_block_2=hint.text_block_2, text_block_3=hint.text_block_3,
-                    cooldown_sec=hint.cooldown_sec, reward_coin=hint.reward_coin, nfc=nfc_info, images=image_list
-                ))
+                hints_response.append(format_hint_response(hint))
 
         has_nfc = any(hint.nfc is not None for hint in hints_response)
 
@@ -287,32 +303,7 @@ async def get_stage(
     if stage.hints:
         sorted_hints = sorted(stage.hints, key=lambda h: h.order_no)
         for hint in sorted_hints:
-            nfc_info = None
-            if hint.nfc:
-                nfc_info = {
-                    "id": str(hint.nfc.id),
-                    "udid": hint.nfc.udid,
-                    "tag_name": hint.nfc.tag_name
-                }
-            
-            image_list = []
-            if hint.images:
-                sorted_images = sorted(hint.images, key=lambda img: img.order_no)
-                image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in sorted_images]
-
-            hints_response.append(HintResponse(
-                id=str(hint.id),
-                stage_id=str(hint.stage_id),
-                preset=hint.preset,
-                order_no=hint.order_no,
-                text_block_1=hint.text_block_1,
-                text_block_2=hint.text_block_2,
-                text_block_3=hint.text_block_3,
-                cooldown_sec=hint.cooldown_sec,
-                reward_coin=hint.reward_coin,
-                nfc=nfc_info,
-                images=image_list
-            ))
+            hints_response.append(format_hint_response(hint))
 
     has_nfc = any(hint.nfc is not None for hint in hints_response)
 
@@ -374,40 +365,17 @@ async def get_hints_by_stage(
     result = await db.execute(
         select(StageHint)
         .where(StageHint.stage_id == stage_id)
+        .options(
+            selectinload(StageHint.nfc), 
+            selectinload(StageHint.images)
+        )
         .order_by(StageHint.order_no)
     )
     hints = result.scalars().all()
 
     response_list = []
     for hint in hints:
-        nfc_info = None
-        if hint.nfc_id:
-            nfc_result = await db.execute(select(NFCTag).where(NFCTag.id == hint.nfc_id))
-            nfc_tag = nfc_result.scalar_one_or_none()
-            if nfc_tag:
-                nfc_info = {
-                    "id": str(nfc_tag.id),
-                    "udid": nfc_tag.udid,
-                    "tag_name": nfc_tag.tag_name
-                }
-        
-        images_result = await db.execute(select(HintImage).where(HintImage.hint_id == hint.id).order_by(HintImage.order_no))
-        images = images_result.scalars().all()
-        image_list = [{"url": img.url, "alt_text": img.alt_text, "order_no": img.order_no} for img in images]
-
-        response_list.append(HintResponse(
-            id=str(hint.id),
-            stage_id=str(hint.stage_id),
-            preset=hint.preset,
-            order_no=hint.order_no,
-            text_block_1=hint.text_block_1,
-            text_block_2=hint.text_block_2,
-            text_block_3=hint.text_block_3,
-            cooldown_sec=hint.cooldown_sec,
-            reward_coin=hint.reward_coin,
-            nfc=nfc_info,
-            images=image_list
-        ))
+        response_list.append(format_hint_response(hint))
         
     return response_list
 
