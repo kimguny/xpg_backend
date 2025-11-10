@@ -488,113 +488,72 @@ async def create_hint(
         images=image_list
     )
 
-# [2. 힌트 수정을 위한 PATCH 엔드포인트 추가]
 @router.patch("/hints/{hint_id}", response_model=HintResponse)
 async def update_hint(
     hint_id: str,
-    hint_data: HintUpdate,
+    hint_data: HintUpdate, # HintUpdate 스키마 사용
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """
-    특정 힌트의 내용을 수정합니다. (NFC, 이미지 포함)
-    """
     
-    # 1. 힌트 조회
-    hint_result = await db.execute(
-        select(StageHint)
-        .where(StageHint.id == hint_id)
-        .options(selectinload(StageHint.nfc)) # 기존 NFC 정보 로드
-    )
-    hint = hint_result.scalar_one_or_none()
-    
-    if not hint:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hint not found"
+    async with db.begin_nested():
+        # 1. 힌트 조회 (Stage 관계 포함)
+        hint_result = await db.execute(
+            select(StageHint)
+            .where(StageHint.id == hint_id)
+            .options(selectinload(StageHint.stage)) # stage.uses_nfc 갱신을 위해 stage 로드
         )
+        hint = hint_result.scalar_one_or_none()
+        
+        if not hint:
+            raise HTTPException(status_code=404, detail="Hint not found")
+        
+        stage = hint.stage
+        if not stage:
+            # 이 경우는 DB 데이터가 꼬인 경우
+            raise HTTPException(status_code=500, detail="Hint is not associated with a stage")
 
-    stage_id = hint.stage_id
-    old_nfc_id = hint.nfc_id
-    
-    update_data = hint_data.model_dump(exclude_unset=True)
-    images_data = update_data.pop("images", None)
-    text_blocks_data = update_data.pop("text_blocks", None)
-    
-    try:
-        # 2. 기본 필드 업데이트
-        for field, value in update_data.items():
-            setattr(hint, field, value)
+        update_data = hint_data.model_dump(exclude_unset=True)
+        had_nfc_change = False
+        original_nfc_id = hint.nfc_id
+        
+        # 2. NFC ID 변경 처리
+        if 'nfc_id' in update_data:
+            had_nfc_change = True
+            new_nfc_id = update_data['nfc_id']
             
-        # 3. 텍스트 블록 업데이트
-        if text_blocks_data is not None:
-            hint.text_block_1 = text_blocks_data[0] if len(text_blocks_data) > 0 else None
-            hint.text_block_2 = text_blocks_data[1] if len(text_blocks_data) > 1 else None
-            hint.text_block_3 = text_blocks_data[2] if len(text_blocks_data) > 2 else None
-
-        # 4. NFC ID 변경 처리
-        if "nfc_id" in update_data:
-            new_nfc_id = update_data["nfc_id"]
-            
-            # 4-1. NFC ID가 변경되었을 때만 유효성 검사
-            if new_nfc_id != old_nfc_id:
-                if new_nfc_id:
-                    # 새 NFC 태그 검증
-                    nfc_result = await db.execute(select(NFCTag).where(NFCTag.id == new_nfc_id))
-                    nfc_tag = nfc_result.scalar_one_or_none()
-                    
-                    if not nfc_tag:
-                        raise HTTPException(
-                            status_code=status.HTTP_404_NOT_FOUND,
-                            detail="New NFC tag not found"
-                        )
-                    
-                    # 중복 바인딩 검증 (자신 제외)
-                    existing_hint = await db.execute(
-                        select(StageHint).where(
-                            and_(
-                                StageHint.stage_id == stage_id,
-                                StageHint.nfc_id == new_nfc_id,
-                                StageHint.id != hint_id # 자신 제외
-                            )
-                        )
+            if new_nfc_id:
+                # 새 NFC 태그 유효성 검사
+                nfc_result = await db.execute(select(NFCTag).where(NFCTag.id == new_nfc_id))
+                if not nfc_result.scalar_one_or_none():
+                    raise HTTPException(status_code=404, detail="New NFC tag not found")
+                
+                # 새 NFC 태그 중복 검사 (같은 스테이지 내)
+                existing_hint = await db.execute(
+                    select(StageHint).where(
+                        StageHint.stage_id == hint.stage_id,
+                        StageHint.nfc_id == new_nfc_id,
+                        StageHint.id != hint_id # 자기 자신은 제외
                     )
-                    if existing_hint.scalar_one_or_none():
-                        raise HTTPException(
-                            status_code=status.HTTP_409_CONFLICT,
-                            detail="NFC tag already bound to another hint in this stage"
-                        )
-                
-                # 4-2. 부모 Stage의 uses_nfc 상태 갱신
-                stage_result = await db.execute(select(Stage).where(Stage.id == stage_id))
-                stage = stage_result.scalar_one_or_none()
-                
-                if stage:
-                    # 다른 힌트들이 NFC를 사용하는지 확인 (현재 힌트 제외)
-                    other_nfc_hints_count = (await db.execute(
-                        select(func.count(StageHint.id))
-                        .where(
-                            StageHint.stage_id == stage_id,
-                            StageHint.nfc_id.is_not(None),
-                            StageHint.id != hint_id # 자신 제외
-                        )
-                    )).scalar() or 0
-                    
-                    if new_nfc_id:
-                        # 새 NFC가 연결되었으므로 무조건 True
-                        stage.uses_nfc = True
-                    elif other_nfc_hints_count == 0:
-                        # NFC 연결이 해제되었고, 다른 NFC 힌트도 없으면 False
-                        stage.uses_nfc = False
-                    
-                    db.add(stage)
-
-        # 5. 이미지 업데이트 (페이로드에 'images' 키가 포함된 경우)
-        if images_data is not None:
-            await db.execute(delete(HintImage).where(HintImage.hint_id == hint_id))
-            await db.flush() # 삭제 적용
+                )
+                if existing_hint.scalar_one_or_none():
+                    raise HTTPException(status_code=409, detail="NFC tag already bound to another hint in this stage")
             
-            for img_data in images_data:
+            hint.nfc_id = new_nfc_id # (None일 수도 있음)
+        
+        # 3. 기본 필드 업데이트 (order_no 제외)
+        for field in ['preset', 'cooldown_sec', 'reward_coin']:
+            if field in update_data:
+                setattr(hint, field, update_data[field])
+
+        # 4. 이미지 업데이트 (기존 이미지 삭제 후 재생성)
+        if 'images' in update_data and update_data['images'] is not None:
+            # 4-1. 기존 이미지 삭제
+            await db.execute(delete(HintImage).where(HintImage.hint_id == hint_id))
+            await db.flush()
+            
+            # 4-2. 새 이미지 추가
+            for img_data in update_data['images']:
                 image = HintImage(
                     hint_id=hint_id,
                     order_no=img_data.get("order_no", 1),
@@ -602,21 +561,61 @@ async def update_hint(
                     alt_text=img_data.get("alt_text", "")
                 )
                 db.add(image)
-        
-        db.add(hint)
-        await db.commit()
-        
-        # 6. 반환을 위해 모든 관계 새로고침
-        await db.refresh(hint, relationships=["nfc", "images"])
 
-        # 7. 응답 반환
-        return format_hint_response(hint)
+        # 5. 텍스트 블록 업데이트
+        if 'text_blocks' in update_data and update_data['text_blocks'] is not None:
+            texts = update_data['text_blocks']
+            hint.text_block_1 = texts[0] if len(texts) > 0 else None
+            hint.text_block_2 = texts[1] if len(texts) > 1 else None
+            hint.text_block_3 = texts[2] if len(texts) > 2 else None
         
-    except Exception as e:
-        await db.rollback()
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"Failed to update hint: {e}")
+        # 6. Stage의 uses_nfc 상태 갱신
+        new_nfc_id = hint.nfc_id
+        if had_nfc_change:
+            if new_nfc_id: # NFC가 새로 추가/변경됨
+                if not stage.uses_nfc:
+                    stage.uses_nfc = True
+                    db.add(stage)
+            elif original_nfc_id: # NFC가 제거됨 (original은 있었는데 new는 없음)
+                # 이 힌트 외에 다른 NFC 힌트가 있는지 확인
+                other_nfc_hints = await db.execute(
+                    select(func.count(StageHint.id))
+                    .where(
+                        StageHint.stage_id == stage.id,
+                        StageHint.nfc_id.is_not(None),
+                        StageHint.id != hint_id # 현재 힌트 제외
+                    )
+                )
+                if (other_nfc_hints.scalar() or 0) == 0:
+                    stage.uses_nfc = False
+                    db.add(stage)
+        
+        # 7. 트랜잭션 커밋 (try-except로 묶음)
+        try:
+            await db.commit()
+        except Exception as e:
+            await db.rollback() # 롤백
+            raise HTTPException(status_code=500, detail=f"Database commit error: {e}")
+
+    # [!!! 500 ERROR FIX !!!]
+    # 8. 방금 커밋된 힌트 정보를 DB에서 다시 조회 (관계를 포함하여)
+    # Stale object 에러를 피하고, format_hint_response가 새 데이터를 사용하도록 보장
+    
+    refreshed_hint_result = await db.execute(
+        select(StageHint)
+        .where(StageHint.id == hint_id)
+        .options(
+            selectinload(StageHint.nfc),
+            selectinload(StageHint.images)
+        )
+    )
+    refreshed_hint = refreshed_hint_result.scalar_one_or_none()
+    
+    if not refreshed_hint:
+        raise HTTPException(status_code=404, detail="Hint not found after update")
+    
+    # 9. 새로 조회한 객체로 응답 포맷팅
+    return format_hint_response(refreshed_hint)
 
 @router.put("/{hint_id}/images")
 async def update_hint_images(
