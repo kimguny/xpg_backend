@@ -4,7 +4,7 @@ from sqlalchemy import select, and_, text, func
 from sqlalchemy.orm import selectinload
 import uuid
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.api.deps import get_db, get_current_user
 from app.models import (
@@ -78,7 +78,7 @@ async def unlock_stage(
     if stage_progress and stage_progress.status != "locked":
         return StageUnlockResponse(
             unlocked=True,
-            unlock_at=stage_progress.unlock_at or datetime.utcnow()
+            unlock_at=stage_progress.unlock_at or datetime.now(timezone.utc)
         )
     
     # 해금 조건 확인 (unlock_stage_id가 있는 경우)
@@ -99,7 +99,7 @@ async def unlock_stage(
                 detail="Required stage not cleared"
             )
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     # 진행상황 생성 또는 업데이트
     if not stage_progress:
@@ -183,7 +183,7 @@ async def clear_stage(
                 RewardInfo(coin_delta=reward.coin_delta, note=reward.note)
                 for reward in existing_rewards
             ],
-            content_cleared=False,
+            content_cleared=False, # 이미 클리어된 상태이므로 false 반환
             next_content=None
         )
     
@@ -194,7 +194,7 @@ async def clear_stage(
             detail="Stage is locked"
         )
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     # 스테이지 진행상황 업데이트
     stage_progress.status = "cleared"
@@ -204,7 +204,7 @@ async def clear_stage(
         if stage_progress.best_time_sec is None or clear_request.best_time_sec < stage_progress.best_time_sec:
             stage_progress.best_time_sec = clear_request.best_time_sec
     
-    # 보상 지급
+    # 보상 지급 (빈 리스트로 초기화)
     rewards = []
     
     # 스테이지 기본 보상 (있는 경우)
@@ -226,9 +226,12 @@ async def clear_stage(
     all_stages = all_stages_result.scalars().all()
     
     # 모든 스테이지 클리어 상태 확인
-    all_stage_ids = [str(s.id) for s in all_stages]
-    cleared_stages_result = await db.execute(
-        select(UserStageProgress).where(
+    all_stage_ids = [s.id for s in all_stages] # [수정] str() 제거
+    
+    # [수정] 현재 클리어한 스테이지를 포함하여 DB에서 카운트
+    cleared_stage_count_result = await db.execute(
+        select(func.count(UserStageProgress.id))
+        .where(
             and_(
                 UserStageProgress.user_id == current_user.id,
                 UserStageProgress.stage_id.in_(all_stage_ids),
@@ -236,10 +239,32 @@ async def clear_stage(
             )
         )
     )
-    cleared_stages = cleared_stages_result.scalars().all()
+    # 현재 스테이지(stage_progress)가 방금 "cleared"로 설정되었으므로 1을 더해줌
+    # (단, DB 트랜잭션이 commit되기 전이므로 DB 카운트에는 포함되지 않음)
+    cleared_stage_count = (cleared_stage_count_result.scalar() or 0)
     
+    # 만약 stage_progress가 목록에 없었다면 (이론상으론 없지만 방어코드)
+    # DB 조회 리스트에 현재 stage_id가 포함되었는지 확인
+    # [수정] 더 간단한 로직: 모든 스테이지 수와 클리어한 스테이지 수를 비교
+    
+    # 현재 스테이지를 포함한 클리어된 스테이지 ID 목록
+    cleared_stages_db_result = await db.execute(
+        select(UserStageProgress.stage_id).where(
+            and_(
+                UserStageProgress.user_id == current_user.id,
+                UserStageProgress.stage_id.in_(all_stage_ids),
+                UserStageProgress.status == "cleared"
+            )
+        )
+    )
+    # DB에서 가져온 이미 클리어된 스테이지 ID 세트
+    cleared_stage_ids = {row[0] for row in cleared_stages_db_result.all()}
+    # 현재 스테이지 ID 추가 (방금 클리어했으므로)
+    cleared_stage_ids.add(stage.id)
+
+
     # 모든 스테이지를 클리어한 경우
-    if len(cleared_stages) == len(all_stages):
+    if len(cleared_stage_ids) == len(all_stage_ids):
         content_cleared = True
         
         # 콘텐츠 진행상황 업데이트
@@ -257,19 +282,21 @@ async def clear_stage(
             content_progress.status = "cleared"
             content_progress.cleared_at = now
         
-        # 콘텐츠 클리어 보상
-        if content.reward_coin > 0:
-            content_reward = RewardLedger(
-                user_id=current_user.id,
-                content_id=content.id,
-                coin_delta=content.reward_coin,
-                note="Content clear"
-            )
-            db.add(content_reward)
-            rewards.append(RewardInfo(
-                coin_delta=content.reward_coin,
-                note="Content clear"
-            ))
+        # --- [수정] 콘텐츠 클리어 보상 로직 삭제 ---
+        # (클라이언트에서 수동으로 지급)
+        # if content.reward_coin > 0:
+        #     content_reward = RewardLedger(
+        #         user_id=current_user.id,
+        #         content_id=content.id,
+        #         coin_delta=content.reward_coin,
+        #         note="Content clear"
+        #     )
+        #     db.add(content_reward)
+        #     rewards.append(RewardInfo(
+        #         coin_delta=content.reward_coin,
+        #         note="Content clear"
+        #     ))
+        # --- [수정] 로직 삭제 끝 ---
         
         # 다음 콘텐츠 확인
         if content.has_next_content and content.next_content_id:
@@ -279,7 +306,7 @@ async def clear_stage(
     
     return StageClearResponse(
         cleared=True,
-        rewards=rewards,
+        rewards=rewards, # 빈 리스트 또는 스테이지 보상만 반환
         content_cleared=content_cleared,
         next_content=next_content_id
     )
@@ -295,75 +322,87 @@ async def consume_reward(
     재고 확인, 포인트 확인, 재고 차감, 포인트 내역 기록을 트랜잭션으로 처리합니다.
     """
     
-    try:
-        # 1. 교환할 상품(StoreReward) 조회 (FOR UPDATE로 비관적 락 설정)
-        #    트랜잭션 격리 수준에 따라 FOR UPDATE가 필요할 수 있으나,
-        #    여기서는 먼저 객체를 조회하고 나중에 차감합니다.
-        reward_result = await db.execute(
-            select(StoreReward).where(StoreReward.id == consume_request.reward_id)
-        )
-        reward_item = reward_result.scalar_one_or_none()
-
-        if not reward_item:
-            raise HTTPException(status_code=404, detail="Reward item not found")
-        if not reward_item.is_active:
-            raise HTTPException(status_code=400, detail="Reward item is not active")
-
-        # 2. (재고 체크)
-        if reward_item.stock_qty is not None: # NULL이 아니면(무제한이 아니면)
-            if reward_item.stock_qty <= 0:
-                raise HTTPException(status_code=400, detail="Item out of stock")
-
-        # 3. (포인트 체크) 사용자의 현재 포인트 잔액 계산
-        user_points_result = await db.execute(
-            select(func.sum(RewardLedger.coin_delta)).where(RewardLedger.user_id == current_user.id)
-        )
-        current_points = user_points_result.scalar() or 0
-
-        # 4. 상품 가격과 비교
-        if current_points < reward_item.price_coin:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Not enough points. Required: {reward_item.price_coin}, Available: {current_points}"
+    # [수정] with db.begin()을 사용하여 트랜잭션 보장
+    async with db.begin():
+        try:
+            # 1. 교환할 상품(StoreReward) 조회 (FOR UPDATE로 비관적 락 설정)
+            reward_item_result = await db.execute(
+                select(StoreReward)
+                .where(StoreReward.id == consume_request.reward_id)
+                .with_for_update() # 비관적 락 (재고 동시성 문제 방지)
             )
+            reward_item = reward_item_result.scalar_one_or_none()
+
+            if not reward_item:
+                raise HTTPException(status_code=404, detail="Reward item not found")
+            if not reward_item.is_active:
+                raise HTTPException(status_code=400, detail="Reward item is not active")
+
+            # 2. (재고 체크)
+            if reward_item.stock_qty is not None: # NULL이 아니면(무제한이 아니면)
+                if reward_item.stock_qty <= 0:
+                    raise HTTPException(status_code=400, detail="Item out of stock")
+
+            # 3. (포인트 체크) 사용자의 현재 포인트 잔액 계산
+            # [수정] 이 쿼리도 트랜잭션에 포함
+            user_points_result = await db.execute(
+                select(func.sum(RewardLedger.coin_delta)).where(RewardLedger.user_id == current_user.id)
+            )
+            current_points = user_points_result.scalar() or 0
+
+            # 4. 상품 가격과 비교
+            if current_points < reward_item.price_coin:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Not enough points. Required: {reward_item.price_coin}, Available: {current_points}"
+                )
+                
+            # 5. (재고 차감) stock_qty가 NULL이 아닐 때만 1 차감
+            if reward_item.stock_qty is not None:
+                reward_item.stock_qty -= 1
+                
+            # 6. (포인트 내역 기록) RewardLedger에 차감 내역 추가
+            new_ledger_entry = RewardLedger(
+                user_id=current_user.id,
+                store_id=reward_item.store_id,
+                store_reward_id=reward_item.id, # [수정] reward_id -> store_reward_id
+                coin_delta=-reward_item.price_coin, # 포인트 차감
+                note=f"Consumed: {reward_item.product_name}"
+            )
+            db.add(new_ledger_entry)
             
-        # 5. (재고 차감) stock_qty가 NULL이 아닐 때만 1 차감
-        if reward_item.stock_qty is not None:
-            reward_item.stock_qty -= 1
+            # 7. user.profile 캐시 업데이트
+            user_to_update = await db.get(User, current_user.id, with_for_update=True)
+            if user_to_update:
+                user_profile = user_to_update.profile or {}
+                user_profile['points'] = current_points - reward_item.price_coin
+                user_to_update.profile = user_profile
+                # SQLAlchemy 1.4+는 변경 감지
             
-        # 6. (포인트 내역 기록) RewardLedger에 차감 내역 추가
-        new_ledger_entry = RewardLedger(
-            user_id=current_user.id,
-            store_id=reward_item.store_id, # [수정] StoreReward의 store_id 참조
-            reward_id=reward_item.id,     # [수정] StoreReward의 id 참조
-            coin_delta=-reward_item.price_coin, # 포인트 차감
-            note=f"Consumed: {reward_item.product_name}"
-        )
-        db.add(new_ledger_entry)
+            # [수정] db.commit()은 with db.begin()이 대신 처리
 
-        # 7. 트랜잭션 커밋
-        await db.commit()
+            # 8. 성공 응답 반환 (트랜잭션이 성공적으로 커밋된 후)
+            # new_ledger_entry.id는 flush 이후에 접근 가능 (commit 전에)
+            await db.flush([new_ledger_entry])
+            
+            return RewardConsumeResponse(
+                success=True,
+                reward_id=reward_item.id,
+                points_deducted=reward_item.price_coin,
+                remaining_points=current_points - reward_item.price_coin,
+                ledger_id=new_ledger_entry.id
+            )
 
-        # 8. 성공 응답 반환
-        return RewardConsumeResponse(
-            success=True,
-            reward_id=reward_item.id,
-            points_deducted=reward_item.price_coin,
-            remaining_points=current_points - reward_item.price_coin,
-            ledger_id=new_ledger_entry.id
-        )
+        except Exception as e:
+            # [수정] db.rollback()은 with db.begin()이 대신 처리
+            if isinstance(e, HTTPException):
+                raise e # HTTP 예외는 그대로 다시 발생시킴
+            
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"An error occurred during transaction: {e}"
+            )
 
-    except HTTPException as http_exc:
-        await db.rollback()
-        raise http_exc # HTTP 예외는 그대로 다시 발생시킴
-        
-    except Exception as e:
-        await db.rollback()
-        # 그 외 예외는 500 오류로 처리
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred during transaction: {e}"
-        )
 
 @router.get("/rewards", response_model=PaginatedResponse[RewardHistoryItem])
 async def get_rewards_history(
@@ -395,15 +434,9 @@ async def get_rewards_history(
     )
     rewards = rewards_result.scalars().all()
     
+    # [수정] Pydantic 스키마의 타입에 맞게 UUID를 str()로 변환
     items = [
-        RewardHistoryItem(
-            id=reward.id,
-            coin_delta=reward.coin_delta,
-            created_at=reward.created_at,
-            note=reward.note,
-            stage_id=str(reward.stage_id) if reward.stage_id else None,
-            content_id=str(reward.content_id) if reward.content_id else None
-        )
+        RewardHistoryItem.model_validate(reward)
         for reward in rewards
     ]
     
