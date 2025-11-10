@@ -38,10 +38,9 @@ class RewardHistoryItem(BaseModel):
     coin_delta: int
     created_at: datetime
     note: Optional[str] = None
-    stage_id: Optional[str] = None
-    content_id: Optional[str] = None
-    reward_id: Optional[str] = None
-    store_id: Optional[str] = None
+    stage_id: Optional[uuid.UUID] = None
+    content_id: Optional[uuid.UUID] = None
+    store_reward_id: Optional[uuid.UUID] = None
 
 class NFCScanRequest(BaseModel):
     """NFC 스캔 요청"""
