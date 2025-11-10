@@ -4,7 +4,7 @@ from sqlalchemy import select, and_, update, func
 from typing import Optional
 from datetime import datetime, timedelta
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import get_db, get_current_user
 from app.models import (
@@ -20,6 +20,7 @@ class NFCTagLookupResponse(BaseModel):
     """
     model_config = ConfigDict(from_attributes=True)
     
+    id: UUID
     udid: str
     tag_name: str
     description: Optional[str] = None
@@ -38,7 +39,81 @@ class NFCTagLookupResponse(BaseModel):
         data['point_reward'] = obj.point_reward
         return cls(**data)
 
+class NFCRegisterRequest(BaseModel):
+    """NFC 사전 등록 요청 스키마"""
+    udid: str = Field(..., description="등록할 NFC 태그의 UDID")
+    tag_name: str = Field(..., min_length=1, max_length=100, description="NFC 태그 이름")
+
+class NFCRegisterResponse(BaseModel):
+    """NFC 사전 등록 응답 스키마"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    udid: str
+    tag_name: str
+    is_active: bool
+
 router = APIRouter()
+
+@router.post(
+    "/register", 
+    response_model=NFCRegisterResponse,
+    summary="[App] NFC 태그 사전 등록",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        409: {"description": "UDID already exists"}
+    }
+)
+async def register_nfc(
+    register_request: NFCRegisterRequest,
+    current_user: User = Depends(get_current_user), # 일반 사용자 권한
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    일반 사용자가 NFC 태그를 스캔하여 UDID와 태그명만으로 시스템에 사전 등록합니다.
+    (세부 설정은 관리자가 추후 관리자 페이지에서 진행)
+    """
+    
+    # 1. UDID 중복 확인
+    existing_tag_result = await db.execute(
+        select(NFCTag).where(NFCTag.udid == register_request.udid)
+    )
+    existing_tag = existing_tag_result.scalar_one_or_none()
+    
+    if existing_tag:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tag with this UDID already exists."
+        )
+        
+    # 2. 새 NFCTag 생성 (최소 정보만)
+    new_tag = NFCTag(
+        udid=register_request.udid,
+        tag_name=register_request.tag_name,
+        # 나머지 필드(위치, 보상, 쿨다운 등)는 기본값(NULL 또는 0)으로 설정됨
+        is_active=True # 기본적으로 활성 상태로 등록
+    )
+    
+    try:
+        db.add(new_tag)
+        await db.commit()
+        await db.refresh(new_tag)
+    except Exception as e:
+        await db.rollback()
+        # (DB 레벨에서 중복 발생 시)
+        if "uq_nfc_tags_udid" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A tag with this UDID already exists (concurrent registration)."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to register NFC tag: {e}"
+        )
+        
+    # 3. 최소 정보 반환
+    return NFCRegisterResponse.model_validate(new_tag)
+
 
 @router.post("/scan", response_model=NFCScanResponse)
 async def scan_nfc(
