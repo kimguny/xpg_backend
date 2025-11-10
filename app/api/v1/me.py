@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update # [1. update 임포트]
 from typing import List
 
 from app.api.deps import get_db, get_current_user
@@ -10,7 +10,8 @@ from app.schemas.user import (
     UserResponse,
     UserUpdate, 
     PasswordChangeRequest,
-    AuthIdentityResponse
+    AuthIdentityResponse,
+    PointAdjustRequest # [2. PointAdjustRequest 임포트]
 )
 from app.core.security import verify_password, get_password_hash
 
@@ -210,6 +211,75 @@ async def get_my_rewards(
         size=size,
         total=total
     )
+
+# [3. 신규 API 추가]
+@router.post("/adjust-points", response_model=RewardHistoryItem)
+async def adjust_my_points(
+    request: PointAdjustRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    [앱] 내 포인트 사용/조정 (예: 리워드 교환)
+    
+    관리자 API와 동일한 로직이지만, 로그인한 본인({user_id} 대신)을 대상으로 합니다.
+    """
+    
+    # 1. 현재 포인트 잔액 확인 (선택 사항 - 마이너스 방지)
+    # (get_my_profile 로직 재사용)
+    points_sum_result = await db.execute(
+        select(func.sum(RewardLedger.coin_delta))
+        .where(RewardLedger.user_id == current_user.id)
+    )
+    current_points = points_sum_result.scalar_one_or_none() or 0
+    
+    # 2. 포인트 사용(음수) 시 잔액 검증
+    if request.coin_delta < 0 and (current_points + request.coin_delta < 0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"포인트가 부족합니다. (현재: {current_points}P, 요청: {request.coin_delta}P)"
+        )
+
+    # 3. RewardLedger에 기록 생성
+    new_ledger_entry = RewardLedger(
+        user_id=current_user.id,
+        coin_delta=request.coin_delta,
+        note=request.note
+    )
+    db.add(new_ledger_entry)
+    
+    # 4. user.profile의 'points' 캐시 업데이트 준비
+    new_points = current_points + request.coin_delta
+    
+    if current_user.profile is None:
+        updated_profile = {}
+    else:
+        updated_profile = current_user.profile.copy()
+        
+    updated_profile['points'] = new_points
+    
+    # 5. 명시적 UPDATE 쿼리 실행 (JSONB 필드 업데이트 보장)
+    await db.execute(
+        update(User)
+        .where(User.id == current_user.id)
+        .values(profile=updated_profile)
+    )
+
+    try:
+        # 6. RewardLedger와 User 업데이트를 동시에 커밋
+        await db.commit()
+        await db.refresh(new_ledger_entry)
+        
+        # 생성된 보상 내역 반환
+        return RewardHistoryItem.model_validate(new_ledger_entry)
+    
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to adjust points and update profile: {e}"
+        )
+
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_my_account(
