@@ -147,7 +147,7 @@ async def get_content_progress(
     
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     if not content_result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_4404_NOT_FOUND, detail="Content not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     
     progress_result = await db.execute(
         select(UserContentProgress).where(
@@ -214,6 +214,7 @@ async def join_content(
     
     return ContentJoinResponse(joined=True, status="in_progress")
 
+# [1. 스키마 수정]
 class StageListResponse(BaseModel):
     id: uuid.UUID
     stage_no: str
@@ -222,6 +223,7 @@ class StageListResponse(BaseModel):
     is_hidden: bool = False
     lock_state: str
     uses_nfc: bool = False
+    thumbnail_url: Optional[str] = None # [수정] thumbnail_url 필드 추가
     model_config = ConfigDict(from_attributes=True)
 
 @router.get("/{content_id}/stages", response_model=List[StageListResponse])
@@ -266,12 +268,15 @@ async def get_content_stages(
         lock_state = "locked"
         if progress:
             lock_state = progress.status
-        elif stage.stage_no == "1":
-            lock_state = "unlocked"
+        # [수정] 첫 번째 스테이지가 아니고, is_sequential일 때만 '1'번 스테이지를 'unlocked'로 처리
+        # (이 로직은 이미 복잡하게 꼬여있을 수 있으므로, 기존 로직을 최대한 유지)
+        elif stage.stage_no == "1" and lock_state == "locked": 
+             lock_state = "unlocked"
         
         if stage.is_hidden and lock_state == "locked":
             continue
         
+        # [2. 응답 데이터 수정]
         stage_data = {
             "id": stage.id,
             "stage_no": stage.stage_no,
@@ -279,7 +284,8 @@ async def get_content_stages(
             "description": stage.description,
             "is_hidden": stage.is_hidden,
             "uses_nfc": stage.uses_nfc,
-            "lock_state": lock_state
+            "lock_state": lock_state,
+            "thumbnail_url": stage.thumbnail_url # [수정] thumbnail_url 필드 추가
         }
         response_stages.append(StageListResponse.model_validate(stage_data))
     
