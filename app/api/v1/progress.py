@@ -224,35 +224,15 @@ async def clear_stage(
         )
     )
     all_stages = all_stages_result.scalars().all()
+    all_stage_ids = [s.id for s in all_stages]
     
-    # 모든 스테이지 클리어 상태 확인
-    all_stage_ids = [s.id for s in all_stages] # [수정] str() 제거
-    
-    # [수정] 현재 클리어한 스테이지를 포함하여 DB에서 카운트
-    cleared_stage_count_result = await db.execute(
-        select(func.count(UserStageProgress.id))
-        .where(
-            and_(
-                UserStageProgress.user_id == current_user.id,
-                UserStageProgress.stage_id.in_(all_stage_ids),
-                UserStageProgress.status == "cleared"
-            )
-        )
-    )
-    # 현재 스테이지(stage_progress)가 방금 "cleared"로 설정되었으므로 1을 더해줌
-    # (단, DB 트랜잭션이 commit되기 전이므로 DB 카운트에는 포함되지 않음)
-    cleared_stage_count = (cleared_stage_count_result.scalar() or 0)
-    
-    # 만약 stage_progress가 목록에 없었다면 (이론상으론 없지만 방어코드)
-    # DB 조회 리스트에 현재 stage_id가 포함되었는지 확인
-    # [수정] 더 간단한 로직: 모든 스테이지 수와 클리어한 스테이지 수를 비교
-    
-    # 현재 스테이지를 포함한 클리어된 스테이지 ID 목록
+    # [수정] 이미 클리어된 스테이지 ID 목록을 DB에서 조회 (현재 스테이지 제외)
     cleared_stages_db_result = await db.execute(
         select(UserStageProgress.stage_id).where(
             and_(
                 UserStageProgress.user_id == current_user.id,
                 UserStageProgress.stage_id.in_(all_stage_ids),
+                UserStageProgress.stage_id != stage.id, # 방금 클리어한 스테이지는 제외
                 UserStageProgress.status == "cleared"
             )
         )
@@ -284,18 +264,6 @@ async def clear_stage(
         
         # --- [수정] 콘텐츠 클리어 보상 로직 삭제 ---
         # (클라이언트에서 수동으로 지급)
-        # if content.reward_coin > 0:
-        #     content_reward = RewardLedger(
-        #         user_id=current_user.id,
-        #         content_id=content.id,
-        #         coin_delta=content.reward_coin,
-        #         note="Content clear"
-        #     )
-        #     db.add(content_reward)
-        #     rewards.append(RewardInfo(
-        #         coin_delta=content.reward_coin,
-        #         note="Content clear"
-        #     ))
         # --- [수정] 로직 삭제 끝 ---
         
         # 다음 콘텐츠 확인
