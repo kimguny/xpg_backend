@@ -49,7 +49,7 @@ async def get_contents(
     conditions = []
     
     if only_available:
-        now = datetime.now(timezone.utc) # [2. 수정] utcnow() -> now(timezone.utc)
+        now = datetime.now(timezone.utc)
         conditions.append(Content.is_open == True)
         conditions.append(
             (Content.is_always_on == True) |
@@ -89,7 +89,8 @@ async def get_contents(
             center_point=center_point_obj.model_dump() if center_point_obj else None,
             start_at=content.start_at,
             end_at=content.end_at,
-            has_next_content=content.has_next_content
+            has_next_content=content.has_next_content,
+            is_sequential=content.is_sequential # [수정 1] is_sequential 필드 추가
         ))
     
     return response_items
@@ -184,7 +185,7 @@ async def join_content(
     if not content.is_open:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Content is not open")
     
-    now = datetime.now(timezone.utc) # [3. 수정] utcnow() -> now(timezone.utc)
+    now = datetime.now(timezone.utc)
     if not content.is_always_on:
         if content.start_at and content.start_at > now:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Content has not started yet")
@@ -214,7 +215,7 @@ async def join_content(
     
     return ContentJoinResponse(joined=True, status="in_progress")
 
-# [1. 스키마 수정]
+# [수정 2] StageListResponse 스키마를 파일 상단으로 이동
 class StageListResponse(BaseModel):
     id: uuid.UUID
     stage_no: str
@@ -223,7 +224,7 @@ class StageListResponse(BaseModel):
     is_hidden: bool = False
     lock_state: str
     uses_nfc: bool = False
-    thumbnail_url: Optional[str] = None # [수정] thumbnail_url 필드 추가
+    thumbnail_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 @router.get("/{content_id}/stages", response_model=List[StageListResponse])
@@ -233,14 +234,17 @@ async def get_content_stages(
     db: AsyncSession = Depends(get_db)
 ):
     
+    # [수정 3] 콘텐츠 정보를 'content' 변수에 저장
     content_result = await db.execute(select(Content).where(Content.id == content_id))
-    if not content_result.scalar_one_or_none():
+    content = content_result.scalar_one_or_none()
+    
+    if not content:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     
     content_progress_result = await db.execute(
         select(UserContentProgress).where(
             UserContentProgress.user_id == current_user.id,
-            UserContentProgress.content_id == content_id
+            UserContentProgress.content_id == content.id
         )
     )
     if not content_progress_result.scalar_one_or_none():
@@ -248,7 +252,7 @@ async def get_content_stages(
     
     stages_result = await db.execute(
         select(Stage)
-        .where(Stage.content_id == content_id, Stage.parent_stage_id.is_(None))
+        .where(Stage.content_id == content.id, Stage.parent_stage_id.is_(None))
         .order_by(Stage.stage_no)
     )
     stages = stages_result.scalars().all()
@@ -265,18 +269,24 @@ async def get_content_stages(
     response_stages = []
     for stage in stages:
         progress = user_stage_progress.get(stage.id)
-        lock_state = "locked"
+        lock_state = "locked" # 기본값
+
+        # [수정 4] 비순차/순차 로직 분기
         if progress:
+            # 1. 진행 상태가 있으면, 그 상태를 최우선으로 적용
             lock_state = progress.status
-        # [수정] 첫 번째 스테이지가 아니고, is_sequential일 때만 '1'번 스테이지를 'unlocked'로 처리
-        # (이 로직은 이미 복잡하게 꼬여있을 수 있으므로, 기존 로직을 최대한 유지)
-        elif stage.stage_no == "1" and lock_state == "locked": 
-             lock_state = "unlocked"
+        elif not content.is_sequential:
+            # 2. 진행 상태가 없고, 비순차 콘텐츠이면 -> 'unlocked'
+            lock_state = "unlocked"
+        elif stage.stage_no == "1":
+            # 3. 진행 상태가 없고, 순차 콘텐츠인데, 1번 스테이지이면 -> 'unlocked'
+            lock_state = "unlocked"
+        
+        # (4. 나머지 경우는 모두 'locked' 상태로 유지)
         
         if stage.is_hidden and lock_state == "locked":
             continue
         
-        # [2. 응답 데이터 수정]
         stage_data = {
             "id": stage.id,
             "stage_no": stage.stage_no,
@@ -285,7 +295,7 @@ async def get_content_stages(
             "is_hidden": stage.is_hidden,
             "uses_nfc": stage.uses_nfc,
             "lock_state": lock_state,
-            "thumbnail_url": stage.thumbnail_url # [수정] thumbnail_url 필드 추가
+            "thumbnail_url": stage.thumbnail_url
         }
         response_stages.append(StageListResponse.model_validate(stage_data))
     

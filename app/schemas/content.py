@@ -64,6 +64,7 @@ class ContentListResponse(BaseModel):
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
     has_next_content: bool
+    is_sequential: bool = Field(True) # [수정] is_sequential 필드 추가
     
 class ContentNextConnect(BaseModel):
     next_content_id: uuid.UUID
