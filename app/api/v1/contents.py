@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict
 import uuid
 
-from app.api.deps import get_db, get_current_user
+# [수정 1] get_optional_current_user 임포트
+from app.api.deps import get_db, get_current_user, get_optional_current_user
 from app.models import Content, UserContentProgress, User
 from app.schemas.content import (
     ContentListResponse,
@@ -35,10 +36,12 @@ async def get_contents(
     exposure_slot: Optional[str] = Query(None, description="노출 슬롯 필터: story|event"),
     page: int = Query(1, ge=1, description="페이지 번호"),
     size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    # [수정 2] get_current_user -> get_optional_current_user로 변경 (비로그인/로그인 모두 허용)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     """
-    입장 가능한 콘텐츠 목록 조회
+    입장 가능한 콘텐츠 목록 조회 (올클리어 상태 포함)
     """
     query = select(
         Content,
@@ -70,11 +73,34 @@ async def get_contents(
     
     result = await db.execute(query)
     content_rows = result.all() # (Content, lon, lat) 튜플
+
+    # [수정 3] 사용자의 '올클리어' 상태 조회 로직
+    cleared_content_ids = set()
+    user_id = current_user.id if current_user else None
+    
+    if user_id:
+        # 쿼리한 콘텐츠들의 ID 리스트 추출
+        content_ids = [content.id for content, lon, lat in content_rows]
+        
+        if content_ids:
+            # UserContentProgress에서 'cleared' 상태인 content_id만 조회
+            progress_stmt = select(UserContentProgress.content_id).where(
+                UserContentProgress.user_id == user_id,
+                UserContentProgress.content_id.in_(content_ids),
+                UserContentProgress.status == 'cleared'
+            )
+            progress_result = await db.execute(progress_stmt)
+            # 빠른 조회를 위해 Set으로 변환
+            cleared_content_ids = {row[0] for row in progress_result.all()}
+
     
     response_items = []
     for row in content_rows:
         content, lon, lat = row
         center_point_obj = format_center_point(lon, lat)
+        
+        # [수정 4] is_cleared 값 설정
+        is_cleared = content.id in cleared_content_ids
         
         response_items.append(ContentListResponse(
             id=str(content.id),
@@ -90,7 +116,8 @@ async def get_contents(
             start_at=content.start_at,
             end_at=content.end_at,
             has_next_content=content.has_next_content,
-            is_sequential=content.is_sequential # [수정 1] is_sequential 필드 추가
+            is_sequential=content.is_sequential,
+            is_cleared=is_cleared # [수정 5] 응답에 is_cleared 포함
         ))
     
     return response_items
