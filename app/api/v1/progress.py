@@ -164,7 +164,7 @@ async def clear_stage(
     )
     stage_progress = stage_progress_result.scalar_one_or_none()
     
-    # 이미 클리어된 경우
+    # 이미 클리어된 경우 (이 로직은 유지)
     if stage_progress and stage_progress.status == "cleared":
         # 기존 보상 조회
         existing_rewards_result = await db.execute(
@@ -187,18 +187,31 @@ async def clear_stage(
             next_content=None
         )
     
-    # 스테이지가 해금되지 않은 경우
-    if not stage_progress or stage_progress.status == "locked":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Stage is locked"
-        )
+    # --- [수정] "잠김" 상태 확인 로직 제거 ---
+    # 스테이지가 해금되지 않은 경우 (기존 코드)
+    # if not stage_progress or stage_progress.status == "locked":
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="Stage is locked"
+    #     )
     
     now = datetime.now(timezone.utc)
     
-    # 스테이지 진행상황 업데이트
-    stage_progress.status = "cleared"
-    stage_progress.cleared_at = now
+    # [수정] 스테이지 진행상황 업데이트 (또는 생성)
+    if not stage_progress:
+        # "locked" 상태였거나 진행 기록이 아예 없으면, 새로 생성
+        stage_progress = UserStageProgress(
+            user_id=current_user.id,
+            stage_id=stage_id,
+            status="cleared", # 'locked' 여부와 상관없이 'cleared'로 강제
+            unlock_at=now,     # 해금된 적이 없으므로 지금 해금
+            cleared_at=now     # 지금 클리어
+        )
+        db.add(stage_progress)
+    else:
+        # 'locked', 'unlocked', 'in_progress' 등 모든 상태를 'cleared'로 덮어쓰기
+        stage_progress.status = "cleared"
+        stage_progress.cleared_at = now
     
     if clear_request.best_time_sec is not None:
         if stage_progress.best_time_sec is None or clear_request.best_time_sec < stage_progress.best_time_sec:
