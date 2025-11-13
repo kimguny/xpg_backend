@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, text, cast, func
+# [수정 1] Integer, cast 임포트
+from sqlalchemy import select, and_, text, cast, func, Integer
 from geoalchemy2.functions import ST_X, ST_Y
 from geoalchemy2 import Geometry
 from typing import List, Optional
@@ -8,7 +9,6 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict
 import uuid
 
-# [수정 1] get_optional_current_user 임포트
 from app.api.deps import get_db, get_current_user, get_optional_current_user
 from app.models import Content, UserContentProgress, User
 from app.schemas.content import (
@@ -23,6 +23,7 @@ from app.models import Stage, UserStageProgress
 router = APIRouter()
 
 def format_center_point(lon: Optional[float], lat: Optional[float]) -> Optional[GeoPoint]:
+# ... (이하 get_contents, get_content_detail, get_content_progress, join_content 함수는 기존과 동일) ...
     if lon is None or lat is None:
         return None
     try:
@@ -37,7 +38,6 @@ async def get_contents(
     page: int = Query(1, ge=1, description="페이지 번호"),
     size: int = Query(20, ge=1, le=100, description="페이지 크기"),
     db: AsyncSession = Depends(get_db),
-    # [수정 2] get_current_user -> get_optional_current_user로 변경 (비로그인/로그인 모두 허용)
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     """
@@ -74,23 +74,19 @@ async def get_contents(
     result = await db.execute(query)
     content_rows = result.all() # (Content, lon, lat) 튜플
 
-    # [수정 3] 사용자의 '올클리어' 상태 조회 로직
     cleared_content_ids = set()
     user_id = current_user.id if current_user else None
     
     if user_id:
-        # 쿼리한 콘텐츠들의 ID 리스트 추출
         content_ids = [content.id for content, lon, lat in content_rows]
         
         if content_ids:
-            # UserContentProgress에서 'cleared' 상태인 content_id만 조회
             progress_stmt = select(UserContentProgress.content_id).where(
                 UserContentProgress.user_id == user_id,
                 UserContentProgress.content_id.in_(content_ids),
                 UserContentProgress.status == 'cleared'
             )
             progress_result = await db.execute(progress_stmt)
-            # 빠른 조회를 위해 Set으로 변환
             cleared_content_ids = {row[0] for row in progress_result.all()}
 
     
@@ -99,7 +95,6 @@ async def get_contents(
         content, lon, lat = row
         center_point_obj = format_center_point(lon, lat)
         
-        # [수정 4] is_cleared 값 설정
         is_cleared = content.id in cleared_content_ids
         
         response_items.append(ContentListResponse(
@@ -117,7 +112,7 @@ async def get_contents(
             end_at=content.end_at,
             has_next_content=content.has_next_content,
             is_sequential=content.is_sequential,
-            is_cleared=is_cleared # [수정 5] 응답에 is_cleared 포함
+            is_cleared=is_cleared
         ))
     
     return response_items
@@ -242,7 +237,6 @@ async def join_content(
     
     return ContentJoinResponse(joined=True, status="in_progress")
 
-# [수정 2] StageListResponse 스키마를 파일 상단으로 이동
 class StageListResponse(BaseModel):
     id: uuid.UUID
     stage_no: str
@@ -261,7 +255,6 @@ async def get_content_stages(
     db: AsyncSession = Depends(get_db)
 ):
     
-    # [수정 3] 콘텐츠 정보를 'content' 변수에 저장
     content_result = await db.execute(select(Content).where(Content.id == content_id))
     content = content_result.scalar_one_or_none()
     
@@ -280,7 +273,7 @@ async def get_content_stages(
     stages_result = await db.execute(
         select(Stage)
         .where(Stage.content_id == content.id, Stage.parent_stage_id.is_(None))
-        .order_by(Stage.stage_no)
+        .order_by(cast(Stage.stage_no, Integer))
     )
     stages = stages_result.scalars().all()
     
@@ -298,18 +291,12 @@ async def get_content_stages(
         progress = user_stage_progress.get(stage.id)
         lock_state = "locked" # 기본값
 
-        # [수정 4] 비순차/순차 로직 분기
         if progress:
-            # 1. 진행 상태가 있으면, 그 상태를 최우선으로 적용
             lock_state = progress.status
         elif not content.is_sequential:
-            # 2. 진행 상태가 없고, 비순차 콘텐츠이면 -> 'unlocked'
             lock_state = "unlocked"
         elif stage.stage_no == "1":
-            # 3. 진행 상태가 없고, 순차 콘텐츠인데, 1번 스테이지이면 -> 'unlocked'
             lock_state = "unlocked"
-        
-        # (4. 나머지 경우는 모두 'locked' 상태로 유지)
         
         if stage.is_hidden and lock_state == "locked":
             continue
