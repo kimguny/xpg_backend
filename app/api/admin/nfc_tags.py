@@ -1,15 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, and_, func
+from sqlalchemy import select, text, and_, func, asc, desc
 from typing import List, Optional
 
 from app.api.deps import get_db, get_current_admin
-from app.models import NFCTag, Admin  # [수정 1] Admin 모델 임포트 추가
+from app.models import NFCTag, Admin
 from app.schemas.common import PaginatedResponse
 from pydantic import BaseModel, Field
 
-# [수정 2] 제가 추가했던 불필요한 import 라인 삭제
-
+# (NFCTagCreate, NFCTagUpdate, NFCTagResponse 스키마는 동일)
 class NFCTagCreate(BaseModel):
     """NFC 태그 생성 요청"""
     udid: str = Field(..., min_length=1, max_length=100, description="고유 UDID")
@@ -38,7 +37,7 @@ class NFCTagUpdate(BaseModel):
     link_url: Optional[str] = None
     latitude: Optional[float] = Field(None, ge=-90, le=90)
     longitude: Optional[float] = Field(None, ge=-180, le=180)
-    tap_message: Optional[str] = None
+    tap__message: Optional[str] = None
     point_reward: Optional[int] = Field(None, ge=0)
     cooldown_sec: Optional[int] = Field(None, ge=0)
     use_limit: Optional[int] = Field(None, ge=1)
@@ -66,6 +65,7 @@ class NFCTagResponse(BaseModel):
     is_active: bool = True
     category: Optional[str] = None
 
+
 router = APIRouter()
 
 def format_nfc_response(nfc_tag: NFCTag) -> NFCTagResponse:
@@ -89,11 +89,12 @@ def format_nfc_response(nfc_tag: NFCTag) -> NFCTagResponse:
         category=nfc_tag.category
     )
 
+# (create_nfc_tag 함수는 기존과 동일)
 @router.post("", response_model=NFCTagResponse)
 async def create_nfc_tag(
     nfc_data: NFCTagCreate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 등록
@@ -155,8 +156,10 @@ async def get_nfc_tags(
     category: Optional[str] = Query(None, description="카테고리 필터"),
     active: Optional[bool] = Query(None, description="활성화 상태 필터"),
     search: Optional[str] = Query(None, description="태그명/UDID 검색"),
+    # [수정 1] sort 파라미터 추가 (프론트엔드와 기본값 일치)
+    sort: Optional[str] = Query("tag_name,ASC", description="정렬 (예: tag_name,ASC 또는 tag_name,DESC)"),
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 목록 조회
@@ -189,9 +192,36 @@ async def get_nfc_tags(
     total_result = await db.execute(count_query)
     total = total_result.scalar()
     
+    # [수정 2] 동적 정렬 로직 추가
+    if sort:
+        try:
+            sort_field_str, sort_direction_str = sort.split(",")
+            if sort_direction_str.upper() not in ["ASC", "DESC"]:
+                sort_direction_str = "ASC"
+        except ValueError:
+            sort_field_str = sort # 쉼표가 없는 경우 (예: "tag_name")
+            sort_direction_str = "ASC"
+        
+        # 정렬 가능한 필드 정의
+        valid_sort_fields = {
+            "tag_name": NFCTag.tag_name,
+            # "created_at": NFCTag.created_at # 추후 필요시 추가
+        }
+        
+        sort_column = valid_sort_fields.get(sort_field_str, NFCTag.tag_name)
+        
+        if sort_direction_str.upper() == "DESC":
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+    else:
+        # 기본 정렬 (sort 파라미터가 아예 없는 경우)
+        query = query.order_by(asc(NFCTag.tag_name))
+
     # 페이지네이션
     offset = (page - 1) * size
-    query = query.offset(offset).limit(size).order_by(NFCTag.tag_name)
+    # [수정 3] 기존 하드코딩된 order_by 제거 (위에서 처리)
+    query = query.offset(offset).limit(size)
     
     result = await db.execute(query)
     nfc_tags = result.scalars().all()
@@ -203,11 +233,12 @@ async def get_nfc_tags(
         total=total
     )
 
+# (get_nfc_tag, update_nfc_tag, delete_nfc_tag, get_nfc_tag_by_udid 함수는 기존과 동일)
 @router.get("/{nfc_id}", response_model=NFCTagResponse)
 async def get_nfc_tag(
     nfc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 상세 조회
@@ -229,7 +260,7 @@ async def update_nfc_tag(
     nfc_id: str,
     nfc_data: NFCTagUpdate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 수정
@@ -280,7 +311,7 @@ async def update_nfc_tag(
 async def delete_nfc_tag(
     nfc_id: str,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 삭제
@@ -312,10 +343,9 @@ async def delete_nfc_tag(
     return {"deleted": True, "nfc_id": nfc_id}
 
 
-# UDID로 NFC 태그 조회 API (기존 코드에 있던 함수)
 @router.get(
     "/by-udid", 
-    response_model=NFCTagResponse, # [수정 4] NFCTagResponse 사용
+    response_model=NFCTagResponse,
     summary="UDID로 기등록된 NFC 태그 조회",
     responses={
         404: {"description": "해당 UDID로 등록된 태그 없음"}
@@ -324,13 +354,13 @@ async def delete_nfc_tag(
 async def get_nfc_tag_by_udid(
     udid: str = Query(..., description="조회할 NFC 태그의 UDID"),
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin) # [수정 3] Admin 타입 사용
+    current_admin: Admin = Depends(get_current_admin)
 ):
     """
     NFC 태그 등록 시, UDID를 기준으로 이미 등록된 태그가 있는지 조회합니다.
     """
     
-    query = select(NFCTag).where(NFCTag.udid == udid) # [수정 5] NFCTag 모델 사용
+    query = select(NFCTag).where(NFCTag.udid == udid)
     result = await db.execute(query)
     tag = result.scalars().first()
     
@@ -340,4 +370,4 @@ async def get_nfc_tag_by_udid(
             detail="해당 UDID로 등록된 NFC 태그를 찾을 수 없습니다."
         )
         
-    return format_nfc_response(tag) # [수정 6] format_nfc_response로 감싸서 반환
+    return format_nfc_response(tag)
