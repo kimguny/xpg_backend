@@ -39,7 +39,7 @@ class RegisterRequest(BaseModel):
     """회원가입 요청 (로컬)"""
     loginId: str = Field(..., min_length=3, max_length=30, pattern=r'^[A-Za-z0-9._-]+$')
     email: str = Field(..., description="이메일 주소")
-    password: str = Field(..., min_length=8, max_length=128, description="비밀번호")
+    password: str = Field(..., min_length=1, max_length=128, description="비밀번호")
     nickname: Optional[str] = Field(None, description="닉네임")
 
 
