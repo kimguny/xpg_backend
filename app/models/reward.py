@@ -17,7 +17,8 @@ class StoreReward(Base):
     qr_image_url = Column(Text, nullable=True) 
     
     price_coin = Column(Integer, nullable=False, default=0)
-    stock_qty = Column(Integer, nullable=True)
+    initial_quantity = Column(Integer, nullable=True, comment="초기 입고 수량 (총 수량)")
+    stock_qty = Column(Integer, nullable=True, comment="현재 남은 재고 (잔여 수량)")
     is_active = Column(Boolean, nullable=False, default=True)
     exposure_order = Column(Integer, nullable=True)
     category = Column(Text, nullable=True)

@@ -12,6 +12,7 @@ class StoreRewardBase(BaseModel):
     product_desc: Optional[str] = Field(None, description="상품 설명")
     image_url: Optional[str] = Field(None, description="상품 이미지 URL")
     price_coin: int = Field(0, description="필요 코인/포인트")
+    initial_quantity: Optional[int] = Field(None, description="총 수량 (null이면 무제한)")
     stock_qty: Optional[int] = Field(None, description="재고 수량 (null이면 무제한)")
     is_active: bool = Field(True, description="활성 상태")
     exposure_order: Optional[int] = Field(None, description="노출 우선순위")
@@ -27,6 +28,7 @@ class StoreRewardUpdate(BaseModel):
     product_desc: Optional[str] = None
     image_url: Optional[str] = None
     price_coin: Optional[int] = None
+    initial_quantity: Optional[int] = None
     stock_qty: Optional[int] = None
     is_active: Optional[bool] = None
     exposure_order: Optional[int] = None
