@@ -57,6 +57,10 @@ class Content(Base):
     # 타임스탬프
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # [추가] 테스트 콘텐츠 여부 컬럼
+    is_test = Column(Boolean, nullable=False, default=False, server_default='false') 
+
     
     # 제약조건
     __table_args__ = (

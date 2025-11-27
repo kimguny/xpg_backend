@@ -21,6 +21,7 @@ class ContentBase(BaseModel):
     end_at: Optional[datetime] = None
     stage_count: Optional[int] = Field(None, ge=1, le=10)
     is_sequential: bool = Field(True)
+    is_test: bool = Field(False, description="테스트 콘텐츠 여부")
 
 class ContentCreate(ContentBase):
     pass
@@ -39,6 +40,7 @@ class ContentUpdate(BaseModel):
     end_at: Optional[datetime] = None
     stage_count: Optional[int] = Field(None, ge=1, le=10)
     is_sequential: Optional[bool] = None
+    is_test: Optional[bool] = None
 
 class ContentResponse(ContentBase):
     id: uuid.UUID
@@ -64,8 +66,9 @@ class ContentListResponse(BaseModel):
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
     has_next_content: bool
-    is_sequential: bool = Field(True) 
-    is_cleared: bool = Field(False, description="현재 사용자의 올클리어 여부") # [수정] is_cleared 필드 추가
+    is_sequential: bool = Field(True)
+    is_cleared: bool = Field(False, description="현재 사용자의 올클리어 여부")
+    is_test: bool = Field(False, description="테스트 콘텐츠 여부")
     
 class ContentNextConnect(BaseModel):
     next_content_id: uuid.UUID

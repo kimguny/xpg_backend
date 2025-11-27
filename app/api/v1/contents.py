@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-# [수정 1] Integer, cast 임포트
 from sqlalchemy import select, and_, text, cast, func, Integer
 from geoalchemy2.functions import ST_X, ST_Y
 from geoalchemy2 import Geometry
@@ -23,7 +22,6 @@ from app.models import Stage, UserStageProgress
 router = APIRouter()
 
 def format_center_point(lon: Optional[float], lat: Optional[float]) -> Optional[GeoPoint]:
-# ... (이하 get_contents, get_content_detail, get_content_progress, join_content 함수는 기존과 동일) ...
     if lon is None or lat is None:
         return None
     try:
@@ -41,13 +39,32 @@ async def get_contents(
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     """
-    입장 가능한 콘텐츠 목록 조회 (올클리어 상태 포함)
+    입장 가능한 콘텐츠 목록 조회 (올클리어 상태 및 테스트 여부 포함)
     """
-    query = select(
+    
+    base_query = select(
         Content,
         ST_X(cast(Content.center_point, Geometry)).label("lon"),
         ST_Y(cast(Content.center_point, Geometry)).label("lat")
     )
+    
+    if current_user:
+        progress_subquery = (
+            select(
+                UserContentProgress.content_id,
+                (UserContentProgress.status == 'cleared').label('is_cleared')
+            )
+            .where(UserContentProgress.user_id == current_user.id)
+            .subquery()
+        )
+        query = (
+            base_query
+            .outerjoin(progress_subquery, Content.id == progress_subquery.c.content_id)
+            .add_columns(func.coalesce(progress_subquery.c.is_cleared, False).label('is_cleared'))
+        )
+    else:
+        query = base_query.add_columns(func.false().label('is_cleared'))
+
     
     conditions = []
     
@@ -72,30 +89,12 @@ async def get_contents(
     query = query.offset(offset).limit(size).order_by(Content.created_at.desc())
     
     result = await db.execute(query)
-    content_rows = result.all() # (Content, lon, lat) 튜플
-
-    cleared_content_ids = set()
-    user_id = current_user.id if current_user else None
-    
-    if user_id:
-        content_ids = [content.id for content, lon, lat in content_rows]
-        
-        if content_ids:
-            progress_stmt = select(UserContentProgress.content_id).where(
-                UserContentProgress.user_id == user_id,
-                UserContentProgress.content_id.in_(content_ids),
-                UserContentProgress.status == 'cleared'
-            )
-            progress_result = await db.execute(progress_stmt)
-            cleared_content_ids = {row[0] for row in progress_result.all()}
-
+    content_rows = result.all()
     
     response_items = []
     for row in content_rows:
-        content, lon, lat = row
+        content, lon, lat, is_cleared = row
         center_point_obj = format_center_point(lon, lat)
-        
-        is_cleared = content.id in cleared_content_ids
         
         response_items.append(ContentListResponse(
             id=str(content.id),
@@ -112,7 +111,8 @@ async def get_contents(
             end_at=content.end_at,
             has_next_content=content.has_next_content,
             is_sequential=content.is_sequential,
-            is_cleared=is_cleared
+            is_cleared=is_cleared,
+            is_test=content.is_test # [수정] 응답에 is_test 추가
         ))
     
     return response_items
@@ -158,9 +158,11 @@ async def get_content_detail(
         end_at=content.end_at,
         stage_count=content.stage_count,
         is_sequential=content.is_sequential,
-        is_open=content.is_open
+        is_open=content.is_open,
+        is_test=content.is_test # [수정] 상세 조회에도 is_test 추가 (ContentResponse가 ContentBase를 상속받으므로 자동 포함될 수 있으나 명시)
     )
 
+# ... (나머지 파일 내용은 기존과 동일) ...
 @router.get("/{content_id}/progress", response_model=ContentProgressResponse)
 async def get_content_progress(
     content_id: str,
@@ -289,7 +291,7 @@ async def get_content_stages(
     response_stages = []
     for stage in stages:
         progress = user_stage_progress.get(stage.id)
-        lock_state = "locked" # 기본값
+        lock_state = "locked"
 
         if progress:
             lock_state = progress.status
