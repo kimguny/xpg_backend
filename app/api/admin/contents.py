@@ -52,7 +52,8 @@ def format_content_response(
         stage_count=content.stage_count,
         is_sequential=content.is_sequential,
         is_open=content.is_open,
-        active_stage_count=active_stage_count
+        active_stage_count=active_stage_count,
+        is_test=content.is_test # [수정 1] 응답 변환 시 is_test 필드 매핑 추가
     )
 
 @router.post("", response_model=ContentResponse)
@@ -79,7 +80,8 @@ async def create_content(
         end_at=content_data.end_at,
         stage_count=content_data.stage_count,
         is_sequential=content_data.is_sequential,
-        created_by=current_admin.id
+        created_by=current_admin.id,
+        is_test=content_data.is_test # [수정 2] 생성 시 is_test 값 저장
     )
     
     db.add(content)
@@ -109,14 +111,15 @@ async def update_content(
             content.center_point = text(f"ST_GeogFromText('POINT({point_data['lon']} {point_data['lat']})')")
         else:
             content.center_point = None
-            
+    
+    # [참고] ContentUpdate 스키마에 is_test가 있으면, 여기서 자동으로 setattr 되어 업데이트됩니다.
     for field, value in update_data.items():
         setattr(content, field, value)
     
     await db.commit()
     await db.refresh(content)
     
-    return format_content_response(content, 0) # 수정 시에는 active_stage_count를 0으로 반환 (필요시 여기도 쿼리 추가)
+    return format_content_response(content, 0) 
 
 @router.post("/{content_id}/next", response_model=ContentResponse)
 async def connect_next_content(
@@ -289,7 +292,6 @@ async def toggle_content_open(
         await db.refresh(content)
     except Exception as e:
         await db.rollback()
-        # [수정] DB 제약조건 오류를 HINT와 함께 반환
         if "RaiseError" in str(e) and "required TOP-LEVEL stages" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
