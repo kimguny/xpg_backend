@@ -68,6 +68,7 @@ class HintCreate(BaseModel):
     text_blocks: List[str] = Field([], description="텍스트 블록들", max_items=3)
     images: List[Dict[str, Any]] = Field([], description="이미지 목록 (예: [{'url': '...', 'alt_text': '...'}])")
     cooldown_sec: int = Field(0, description="쿨다운(초)", ge=0)
+    failure_cooldown_sec: int = Field(0, description="미션 실패 시 재시도 쿨타임(초)", ge=0)
     reward_coin: int = Field(0, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID")
 
@@ -77,6 +78,7 @@ class HintUpdate(BaseModel):
     text_blocks: Optional[List[str]] = Field(None, description="텍스트 블록들", max_items=3)
     images: Optional[List[Dict[str, Any]]] = Field(None, description="이미지 목록")
     cooldown_sec: Optional[int] = Field(None, description="쿨다운(초)", ge=0)
+    failure_cooldown_sec: Optional[int] = Field(None, description="미션 실패 시 재시도 쿨타임(초)", ge=0)
     reward_coin: Optional[int] = Field(None, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID (null로 설정하여 연결 해제 가능)")
 
@@ -91,6 +93,7 @@ class HintResponse(BaseModel):
     text_block_2: Optional[str] = None
     text_block_3: Optional[str] = None
     cooldown_sec: int = 0
+    failure_cooldown_sec: int = 0
     reward_coin: int = 0
     nfc: Optional[Dict[str, Any]] = None
     images: List[Dict[str, Any]] = []

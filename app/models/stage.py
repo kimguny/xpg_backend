@@ -122,6 +122,7 @@ class StageHint(Base):
     
     # 쿨다운 및 보상
     cooldown_sec = Column(Integer, default=0)
+    failure_cooldown_sec = Column(Integer, default=0, nullable=True, comment="미션 실패 시 재시도 쿨타임(초)")
     reward_coin = Column(Integer, default=0)
     
     # 연계 NFC 태그
