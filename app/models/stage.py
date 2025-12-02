@@ -127,6 +127,10 @@ class StageHint(Base):
     
     # 연계 NFC 태그
     nfc_id = Column(UUID(as_uuid=True), ForeignKey("nfc_tags.id", ondelete="RESTRICT"), nullable=True)
+
+    # [추가] 위치 기반 해금 조건
+    location = Column(Geography('POINT', srid=4326), nullable=True)
+    radius_m = Column(Integer, default=0, nullable=True)
     
     # 관계 설정
     stage = relationship("Stage", back_populates="hints")

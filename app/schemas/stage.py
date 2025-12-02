@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import uuid
 
+# 공통 위치 스키마 (위도, 경도)
 class LocationSchema(BaseModel):
     lon: float = Field(..., description="경도", ge=-180, le=180)
     lat: float = Field(..., description="위도", ge=-90, le=90)
@@ -71,8 +72,11 @@ class HintCreate(BaseModel):
     failure_cooldown_sec: int = Field(0, description="미션 실패 시 재시도 쿨타임(초)", ge=0)
     reward_coin: int = Field(0, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID")
+    
+    # [수정] 위치 정보 필드 추가
+    location: Optional[LocationSchema] = Field(None, description="위치 인증 좌표 (lat, lon)")
+    radius_m: Optional[int] = Field(None, description="위치 인증 반경(m)")
 
-# [1. '힌트 수정' 스키마 추가]
 class HintUpdate(BaseModel):
     preset: Optional[str] = Field(None, description="표시 프리셋")
     text_blocks: Optional[List[str]] = Field(None, description="텍스트 블록들", max_items=3)
@@ -81,6 +85,10 @@ class HintUpdate(BaseModel):
     failure_cooldown_sec: Optional[int] = Field(None, description="미션 실패 시 재시도 쿨타임(초)", ge=0)
     reward_coin: Optional[int] = Field(None, description="힌트 보상 코인", ge=0)
     nfc_id: Optional[str] = Field(None, description="연계 NFC 태그 ID (null로 설정하여 연결 해제 가능)")
+    
+    # [수정] 위치 정보 필드 추가
+    location: Optional[LocationSchema] = Field(None, description="위치 인증 좌표")
+    radius_m: Optional[int] = Field(None, description="위치 인증 반경(m)")
 
 class HintResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -97,6 +105,10 @@ class HintResponse(BaseModel):
     reward_coin: int = 0
     nfc: Optional[Dict[str, Any]] = None
     images: List[Dict[str, Any]] = []
+    
+    # [수정] 위치 정보 응답 필드 추가 (DB의 Geography 타입 -> Dict 변환됨을 가정)
+    location: Optional[Dict[str, Any]] = None 
+    radius_m: Optional[int] = None
 
 class HintImageUpdate(BaseModel):
     images: List[Dict[str, Any]] = Field([], description="이미지 목록")
