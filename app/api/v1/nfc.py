@@ -6,12 +6,29 @@ from datetime import datetime, timedelta
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
+# [추가] 위치 거리 계산을 위한 라이브러리
+from geoalchemy2.functions import ST_Distance, ST_GeogFromText
+from geoalchemy2.elements import WKTElement
+
 from app.api.deps import get_db, get_current_user
 from app.models import (
     User, NFCTag, StageHint, UserStageProgress, 
     NFCScanLog, RewardLedger
 )
 from app.schemas.progress import NFCScanRequest, NFCScanResponse
+
+# [추가] 위치 인증 요청 스키마
+class LocationVerifyRequest(BaseModel):
+    hint_id: str = Field(..., description="인증하려는 힌트 ID")
+    latitude: float = Field(..., description="현재 위도")
+    longitude: float = Field(..., description="현재 경도")
+
+# [추가] 위치 인증 응답 스키마
+class LocationVerifyResponse(BaseModel):
+    allowed: bool
+    reason: Optional[str] = None
+    point_reward: int = 0
+    next: Optional[dict] = None # 다음 단계 정보
 
 class NFCTagLookupResponse(BaseModel):
     """
@@ -34,8 +51,6 @@ class NFCTagLookupResponse(BaseModel):
     @classmethod
     def model_validate(cls, obj, **kwargs):
         data = super().model_validate(obj, **kwargs).model_dump()
-        # 반환 시 실제 포인트 값이 아닌, 0 또는 1 (보상 있음)만 반환하게 할 수도 있으나
-        # 기획상 획득 포인트를 보여주는 것이 맞다면 point_reward 그대로 반환
         data['point_reward'] = obj.point_reward
         return cls(**data)
 
@@ -66,15 +81,13 @@ router = APIRouter()
 )
 async def register_nfc(
     register_request: NFCRegisterRequest,
-    current_user: User = Depends(get_current_user), # 일반 사용자 권한
+    current_user: User = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
     """
     일반 사용자가 NFC 태그를 스캔하여 UDID와 태그명만으로 시스템에 사전 등록합니다.
-    (세부 설정은 관리자가 추후 관리자 페이지에서 진행)
     """
     
-    # 1. UDID 중복 확인
     existing_tag_result = await db.execute(
         select(NFCTag).where(NFCTag.udid == register_request.udid)
     )
@@ -86,12 +99,10 @@ async def register_nfc(
             detail="A tag with this UDID already exists."
         )
         
-    # 2. 새 NFCTag 생성 (최소 정보만)
     new_tag = NFCTag(
         udid=register_request.udid,
         tag_name=register_request.tag_name,
-        # 나머지 필드(위치, 보상, 쿨다운 등)는 기본값(NULL 또는 0)으로 설정됨
-        is_active=True # 기본적으로 활성 상태로 등록
+        is_active=True 
     )
     
     try:
@@ -100,7 +111,6 @@ async def register_nfc(
         await db.refresh(new_tag)
     except Exception as e:
         await db.rollback()
-        # (DB 레벨에서 중복 발생 시)
         if "uq_nfc_tags_udid" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -111,7 +121,6 @@ async def register_nfc(
             detail=f"Failed to register NFC tag: {e}"
         )
         
-    # 3. 최소 정보 반환
     return NFCRegisterResponse.model_validate(new_tag)
 
 
@@ -124,39 +133,30 @@ async def scan_nfc(
 ):
     """
     NFC 태깅 처리 + 쿨다운/인증 판단 + 로그 적재
-    [수정] 포인트 지급 시 user.profile 캐시 업데이트
     """
     
-    # [5. 수정] 전체 로직을 트랜잭션으로 묶음
     async with db.begin():
         # 1. NFC 태그 조회
         nfc_result = await db.execute(select(NFCTag).where(NFCTag.udid == scan_request.udid))
         nfc_tag = nfc_result.scalar_one_or_none()
         
         if not nfc_tag:
-            # ... (로그 기록 로직 - await db.commit() 제거)
             scan_log = NFCScanLog(
                 user_id=current_user.id, nfc_id=None, allowed=False, reason="NFC tag not found"
             )
             db.add(scan_log)
-            # await db.commit() # 트랜잭션 종료 시 자동 커밋
-            
             return NFCScanResponse(allowed=False, reason="NFC tag not found")
         
         # 2. 태그 활성화 상태 확인
         if not nfc_tag.is_active:
-            # ... (로그 기록 로직 - await db.commit() 제거)
             scan_log = NFCScanLog(
                 user_id=current_user.id, nfc_id=nfc_tag.id, allowed=False, reason="NFC tag is not active"
             )
             db.add(scan_log)
-            # await db.commit()
-            
             return NFCScanResponse(allowed=False, reason="NFC tag is not active")
         
         # 3. 쿨다운 확인
         if nfc_tag.cooldown_sec > 0:
-            # ... (쿨다운 계산 로직)
             cooldown_threshold = datetime.utcnow() - timedelta(seconds=nfc_tag.cooldown_sec)
             recent_scan_result = await db.execute(
                 select(NFCScanLog)
@@ -174,7 +174,6 @@ async def scan_nfc(
             recent_scan = recent_scan_result.scalar_one_or_none()
             
             if recent_scan:
-                # ... (쿨다운 로그 기록 - await db.commit() 제거)
                 time_diff = (datetime.utcnow() - recent_scan.scanned_at).total_seconds()
                 remaining_cooldown = int(nfc_tag.cooldown_sec - time_diff)
                 scan_log = NFCScanLog(
@@ -182,7 +181,6 @@ async def scan_nfc(
                     reason=f"Cooldown active ({remaining_cooldown}s remaining)"
                 )
                 db.add(scan_log)
-                # await db.commit()
                 
                 return NFCScanResponse(
                     allowed=False,
@@ -192,7 +190,6 @@ async def scan_nfc(
         
         # 4. 사용 제한 확인
         if nfc_tag.use_limit is not None:
-            # [수정] count 쿼리를 사용하도록 최적화
             usage_count_result = await db.execute(
                 select(func.count(NFCScanLog.id))
                 .where(
@@ -206,12 +203,10 @@ async def scan_nfc(
             usage_count = usage_count_result.scalar() or 0
             
             if usage_count >= nfc_tag.use_limit:
-                # ... (로그 기록 - await db.commit() 제거)
                 scan_log = NFCScanLog(
                     user_id=current_user.id, nfc_id=nfc_tag.id, allowed=False, reason="Usage limit reached"
                 )
                 db.add(scan_log)
-                # await db.commit()
                 
                 return NFCScanResponse(allowed=False, reason="Usage limit reached for this NFC tag")
         
@@ -232,7 +227,7 @@ async def scan_nfc(
         )
         db.add(scan_log)
         
-        new_points = 0 # 포인트 지급 후 잔액 계산용
+        new_points = 0 
         
         # 7. 포인트 보상 지급 (및 캐시 업데이트)
         if nfc_tag.point_reward > 0:
@@ -243,15 +238,12 @@ async def scan_nfc(
             )
             db.add(reward)
             
-            # --- [ 핵심 추가 로직 ] ---
-            # 7-1. user.profile 포인트 캐시 업데이트
-            #      (redeem API와 동일한 로직 사용)
             user_to_update = await db.get(User, current_user.id, with_for_update=True)
             if not user_to_update:
                 raise HTTPException(status_code=404, detail="User not found during point update")
 
             current_points = user_to_update.profile.get("points", 0) if user_to_update.profile else 0
-            new_points = current_points + nfc_tag.point_reward # 지급이므로 +
+            new_points = current_points + nfc_tag.point_reward 
             
             if user_to_update.profile is None:
                 updated_profile = {}
@@ -265,7 +257,6 @@ async def scan_nfc(
                 .where(User.id == current_user.id)
                 .values(profile=updated_profile)
             )
-            # --- [ 핵심 추가 로직 끝 ] ---
         
         # 8. 힌트와 연결된 경우 스테이지 진행상황 업데이트
         if hint:
@@ -285,9 +276,6 @@ async def scan_nfc(
             else:
                 stage_progress.nfc_count = (stage_progress.nfc_count or 0) + 1
         
-        # 9. 트랜잭션 커밋 (await db.commit() 제거)
-        #    (async with db.begin()이 끝나면 자동 커밋)
-    
     # 10. 응답 구성 (트랜잭션 밖에서)
     hint_info = None
     if hint:
@@ -295,7 +283,6 @@ async def scan_nfc(
     
     next_info = None
     if hint:
-        # ... (다음 힌트 확인 로직)
         next_hint_result = await db.execute(
             select(StageHint)
             .where(
@@ -337,12 +324,11 @@ async def get_nfc_tag_by_udid_for_app(
 ):
     """
     앱에서 UDID를 기준으로 활성화된 NFC 태그의 공개 정보를 조회합니다.
-    (포인트 지급이나 쿨다운 체크는 /scan API에서 수행)
     """
     
     query = select(NFCTag).where(
         NFCTag.udid == udid,
-        NFCTag.is_active == True # 활성화된 태그만 조회
+        NFCTag.is_active == True 
     )
     result = await db.execute(query)
     tag = result.scalars().first()
@@ -354,3 +340,133 @@ async def get_nfc_tag_by_udid_for_app(
         )
         
     return tag
+
+# ==========================================================
+# [신규] 위치 인증 API (GPS 정답 처리)
+# ==========================================================
+@router.post(
+    "/verify-location",
+    response_model=LocationVerifyResponse,
+    summary="[App] GPS 위치 인증 (힌트 정답 확인)"
+)
+async def verify_location(
+    req: LocationVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    사용자의 현재 GPS 좌표가 힌트에 설정된 목표 지점의 반경 내에 있는지 확인합니다.
+    - 정답이면: allowed=True, 포인트 지급(있는 경우), 스테이지 진행 갱신
+    - 오답이면: allowed=False
+    """
+    
+    async with db.begin():
+        # 1. 힌트 조회
+        hint_result = await db.execute(select(StageHint).where(StageHint.id == req.hint_id))
+        hint = hint_result.scalar_one_or_none()
+        
+        if not hint:
+            return LocationVerifyResponse(allowed=False, reason="Hint not found")
+        
+        # 2. 위치 설정 여부 확인
+        if not hint.location or not hint.radius_m:
+            return LocationVerifyResponse(allowed=False, reason="This hint does not have location verification configured.")
+        
+        # 3. 거리 계산 (PostGIS ST_Distance: 미터 단위 반환)
+        # 사용자 위치 Point 생성
+        user_point = f"POINT({req.longitude} {req.latitude})"
+        
+        # DB에서 거리 계산
+        # ST_Distance(geography, geography) -> meters
+        # hint.location은 이미 Geography 타입
+        distance_query = select(
+            func.ST_Distance(
+                hint.location,
+                func.ST_GeogFromText(user_point)
+            )
+        )
+        distance_result = await db.execute(distance_query)
+        distance_meters = distance_result.scalar() or 0.0
+        
+        # 4. 반경 확인
+        if distance_meters > hint.radius_m:
+            return LocationVerifyResponse(
+                allowed=False, 
+                reason=f"Not within target area. Distance: {int(distance_meters)}m, Required: {hint.radius_m}m"
+            )
+            
+        # --- [정답 처리 로직] ---
+        
+        # 5. 포인트 보상 지급 (힌트 자체 보상)
+        if hint.reward_coin > 0:
+            # 이미 보상을 받았는지 체크할 수도 있음 (기획에 따라 다름)
+            # 여기서는 중복 지급 방지 로직은 생략 (필요 시 추가)
+            
+            reward = RewardLedger(
+                user_id=current_user.id,
+                coin_delta=hint.reward_coin,
+                note=f"Location verified: Hint {hint.id}"
+            )
+            db.add(reward)
+            
+            # 유저 프로필 업데이트
+            user_to_update = await db.get(User, current_user.id, with_for_update=True)
+            current_points = user_to_update.profile.get("points", 0) if user_to_update.profile else 0
+            new_points = current_points + hint.reward_coin
+            
+            if user_to_update.profile is None:
+                updated_profile = {}
+            else:
+                updated_profile = user_to_update.profile.copy()
+            updated_profile["points"] = new_points
+            
+            await db.execute(
+                update(User)
+                .where(User.id == current_user.id)
+                .values(profile=updated_profile)
+            )
+
+        # 6. 스테이지 진행상황 업데이트
+        stage_progress_result = await db.execute(
+            select(UserStageProgress).where(
+                UserStageProgress.user_id == current_user.id,
+                UserStageProgress.stage_id == hint.stage_id
+            )
+        )
+        stage_progress = stage_progress_result.scalar_one_or_none()
+        
+        if not stage_progress:
+            stage_progress = UserStageProgress(
+                user_id=current_user.id, 
+                stage_id=hint.stage_id, 
+                status="in_progress", 
+                nfc_count=1 # 위치 인증도 카운트로 칠 경우
+            )
+            db.add(stage_progress)
+        else:
+            # 단순히 카운트만 늘릴지, 특정 상태를 바꿀지는 기획에 따름
+            stage_progress.nfc_count = (stage_progress.nfc_count or 0) + 1
+            
+    # 7. 다음 단계 정보 조회 (트랜잭션 밖)
+    next_info = None
+    next_hint_result = await db.execute(
+        select(StageHint)
+        .where(
+            StageHint.stage_id == hint.stage_id,
+            StageHint.order_no > hint.order_no
+        )
+        .order_by(StageHint.order_no)
+        .limit(1)
+    )
+    next_hint = next_hint_result.scalar_one_or_none()
+    
+    if next_hint:
+        next_info = {"type": "hint", "id": str(next_hint.id)}
+    else:
+        next_info = {"type": "stage", "id": str(hint.stage_id)}
+
+    return LocationVerifyResponse(
+        allowed=True,
+        point_reward=hint.reward_coin,
+        next=next_info
+    )
