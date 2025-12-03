@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, text, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
-# [수정] 좌표 변환을 위한 라이브러리 추가
+# 좌표 변환 라이브러리
 from geoalchemy2.shape import to_shape 
 
 from app.api.deps import get_db, get_current_admin
@@ -24,38 +24,33 @@ from app.schemas.stage import (
 
 router = APIRouter()
 
-# [수정] Helper: 위치 정보 포맷팅 (Stage용) - to_shape 사용
+# [Helper] 위치 정보 포맷팅 (Stage용)
 def format_location(stage: Stage) -> Optional[dict]:
     if not stage.location:
         return None
-    
     try:
-        # DB의 WKBElement를 Shapely Point 객체로 변환
         point = to_shape(stage.location)
         result = {
-            "lon": float(point.x), # 경도
-            "lat": float(point.y)  # 위도
+            "lon": float(point.x),
+            "lat": float(point.y)
         }
         if stage.radius_m:
             result["radius_m"] = stage.radius_m
         return result
     except Exception as e:
-        print(f"Stage location parsing error: {e}")
         return None
 
-# [수정] Helper: 위치 정보 포맷팅 (Hint용) - to_shape 사용
+# [Helper] 위치 정보 포맷팅 (Hint용)
 def format_hint_location(hint: StageHint) -> Optional[dict]:
     if not hint.location:
         return None
     try:
-        # DB의 WKBElement를 Shapely Point 객체로 변환
         point = to_shape(hint.location)
         return {
-            "lat": float(point.y), # 위도
-            "lon": float(point.x)  # 경도
+            "lat": float(point.y),
+            "lon": float(point.x)
         }
     except Exception as e:
-        print(f"Hint location parsing error: {e}")
         return None
 
 def format_stage_response(stage: Stage) -> StageResponse:
@@ -84,6 +79,7 @@ def format_stage_response(stage: Stage) -> StageResponse:
 
 def format_hint_response(hint: StageHint) -> HintResponse:
     nfc_info = None
+    # [주의] 비동기 세션에서 관계 속성(nfc, images)에 접근하려면 미리 로드되어 있어야 함
     if hint.nfc:
         nfc_info = {
             "id": str(hint.nfc.id),
@@ -109,7 +105,7 @@ def format_hint_response(hint: StageHint) -> HintResponse:
         reward_coin=hint.reward_coin,
         nfc=nfc_info,
         images=image_list,
-        location=format_hint_location(hint), # 수정된 함수 사용
+        location=format_hint_location(hint),
         radius_m=hint.radius_m
     )
 
@@ -498,17 +494,19 @@ async def create_hint(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to commit hint and images: {e}")
     
-    await db.refresh(hint)
+    # [수정] 관계 속성(nfc, images) 로딩을 위해 Refresh 대신 다시 Select 수행
+    # db.refresh(hint) 만으로는 relation이 로드되지 않아 MissingGreenlet 에러 발생 가능
+    refreshed_hint_result = await db.execute(
+        select(StageHint)
+        .where(StageHint.id == hint.id)
+        .options(
+            selectinload(StageHint.nfc),
+            selectinload(StageHint.images)
+        )
+    )
+    refreshed_hint = refreshed_hint_result.scalar_one()
     
-    nfc_info = None
-    if nfc_tag:
-        nfc_info = {
-            "id": str(nfc_tag.id),
-            "udid": nfc_tag.udid,
-            "tag_name": nfc_tag.tag_name
-        }
-    
-    return format_hint_response(hint)
+    return format_hint_response(refreshed_hint)
 
 @router.patch("/hints/{hint_id}", response_model=HintResponse)
 async def update_hint(
@@ -523,7 +521,7 @@ async def update_hint(
         hint_result = await db.execute(
             select(StageHint)
             .where(StageHint.id == hint_id)
-            .options(selectinload(StageHint.stage)) # stage.uses_nfc 갱신을 위해 stage 로드
+            .options(selectinload(StageHint.stage)) 
         )
         hint = hint_result.scalar_one_or_none()
         
@@ -532,7 +530,6 @@ async def update_hint(
         
         stage = hint.stage
         if not stage:
-            # 이 경우는 DB 데이터가 꼬인 경우
             raise HTTPException(status_code=500, detail="Hint is not associated with a stage")
 
         update_data = hint_data.model_dump(exclude_unset=True)
@@ -627,10 +624,7 @@ async def update_hint(
             await db.rollback() # 롤백
             raise HTTPException(status_code=500, detail=f"Database commit error: {e}")
 
-    # [!!! 500 ERROR FIX !!!]
-    # 8. 방금 커밋된 힌트 정보를 DB에서 다시 조회 (관계를 포함하여)
-    # Stale object 에러를 피하고, format_hint_response가 새 데이터를 사용하도록 보장
-    
+    # [수정] 커밋 후 다시 조회하여 관계 속성 로드 및 Stale 데이터 방지
     refreshed_hint_result = await db.execute(
         select(StageHint)
         .where(StageHint.id == hint_id)
