@@ -3,26 +3,44 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import List, Optional
 
+# [추가] 좌표 변환을 위한 라이브러리 추가
+from geoalchemy2.shape import to_shape 
+
 from app.api.deps import get_db, get_current_user
 from app.models import Stage, StageHint, HintImage, StagePuzzle, StageUnlock, User, UserStageProgress, NFCTag
 from app.schemas.stage import StageDetailResponse, HintResponse
 
 router = APIRouter()
 
+# [수정] Helper: 위치 정보 포맷팅 (Stage용) - to_shape 사용
 def format_location(stage: Stage) -> Optional[dict]:
     """geography 타입의 location을 dict로 변환"""
     if not stage.location:
         return None
     
     try:
+        point = to_shape(stage.location)
         result = {
-            "lon": float(stage.location.longitude) if hasattr(stage.location, 'longitude') else 0.0,
-            "lat": float(stage.location.latitude) if hasattr(stage.location, 'latitude') else 0.0
+            "lon": float(point.x), # 경도
+            "lat": float(point.y)  # 위도
         }
         if stage.radius_m:
             result["radius_m"] = stage.radius_m
         return result
-    except:
+    except Exception:
+        return None
+
+# [추가] Helper: 위치 정보 포맷팅 (Hint용)
+def format_hint_location(hint: StageHint) -> Optional[dict]:
+    if not hint.location:
+        return None
+    try:
+        point = to_shape(hint.location)
+        return {
+            "lat": float(point.y), # 위도
+            "lon": float(point.x)  # 경도
+        }
+    except Exception:
         return None
 
 @router.get("/{stage_id}", response_model=StageDetailResponse)
@@ -117,6 +135,12 @@ async def get_stage_detail(
             text_block_2=hint.text_block_2,
             text_block_3=hint.text_block_3,
             cooldown_sec=hint.cooldown_sec,
+            
+            # [추가] 신규 필드 매핑
+            failure_cooldown_sec=hint.failure_cooldown_sec,
+            location=format_hint_location(hint),
+            radius_m=hint.radius_m,
+            
             reward_coin=hint.reward_coin,
             nfc=nfc_info,
             images=[
@@ -137,6 +161,7 @@ async def get_stage_detail(
     
     puzzle_list = [
         {
+            "id": str(puzzle.id),
             "style": puzzle.puzzle_style,
             "show_when": puzzle.show_when,
             "config": puzzle.config
@@ -253,6 +278,12 @@ async def get_stage_hints(
             text_block_2=hint.text_block_2,
             text_block_3=hint.text_block_3,
             cooldown_sec=hint.cooldown_sec,
+            
+            # [추가] 신규 필드 매핑
+            failure_cooldown_sec=hint.failure_cooldown_sec,
+            location=format_hint_location(hint),
+            radius_m=hint.radius_m,
+            
             reward_coin=hint.reward_coin,
             nfc=nfc_info,
             images=[]  # 이미지는 상세 조회에서만 제공
