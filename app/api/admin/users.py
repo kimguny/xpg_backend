@@ -9,6 +9,7 @@ from app.models import User, Admin, RewardLedger
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import UserResponse, UserUpdateRequest, PointAdjustRequest
 from app.schemas.progress import RewardHistoryItem
+from app.schemas.user import ResetAllPointsRequest
 
 router = APIRouter()
 
@@ -280,3 +281,82 @@ async def delete_user_by_admin(
         )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.post("/reset-all-points")
+async def reset_all_points(
+    request: ResetAllPointsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin)
+):
+    """
+    전체 사용자 포인트 초기화 (관리자 전용)
+    
+    - 상쇄 방식: (현재 포인트 * -1) 만큼의 Ledger 기록을 생성하여 잔액을 0으로 만듭니다.
+    - 캐시 업데이트: 모든 User 모델의 profile['points'] 값을 0으로 일괄 업데이트합니다.
+    """
+    
+    # 1. 관리자 비밀번호 검증 (실제 운영 시 환경변수 처리를 권장합니다)
+    ADMIN_RESET_PASSWORD = "admin1234"
+    if request.password != ADMIN_RESET_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="관리자 비밀번호가 일치하지 않습니다."
+        )
+
+    try:
+        # 2. 리셋 대상 선정 (잔액이 0이 아닌 사용자들만 추출)
+        # RewardLedger의 합계를 계산하여 상쇄가 필요한 사용자 및 금액 확인
+        balance_stmt = (
+            select(
+                RewardLedger.user_id,
+                func.sum(RewardLedger.coin_delta).label("current_balance")
+            )
+            .group_by(RewardLedger.user_id)
+            .having(func.sum(RewardLedger.coin_delta) != 0)
+        )
+        balance_result = await db.execute(balance_stmt)
+        targets = balance_result.all()
+
+        if not targets:
+            return {"message": "초기화할 대상 사용자가 없습니다."}
+
+        # 3. 상쇄 내역(Negative Delta) 생성을 위한 Ledger 객체 리스트 생성
+        new_ledger_entries = [
+            RewardLedger(
+                user_id=row.user_id,
+                coin_delta=-(row.current_balance),
+                note="관리자 시스템 전체 포인트 초기화"
+            ) for row in targets
+        ]
+
+        # 4. 데이터베이스 일괄 업데이트 실행
+        # (1) RewardLedger에 상쇄 기록 추가
+        db.add_all(new_ledger_entries)
+
+        # (2) User 테이블의 profile JSONB 필드 내 points 값을 0으로 일괄 변경
+        # 기존 adjust_user_points에서 사용한 방식과 유사하게 명시적 UPDATE 실행
+        await db.execute(
+            update(User)
+            .where(User.profile.is_not(None))
+            .values(
+                profile=func.jsonb_set(
+                    func.coalesce(User.profile, '{}'), 
+                    '{points}', 
+                    '0'
+                )
+            )
+        )
+
+        # 5. 트랜잭션 커밋
+        await db.commit()
+        
+        return {
+            "message": f"성공적으로 {len(new_ledger_entries)}명의 사용자의 포인트를 초기화했습니다."
+        }
+
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"포인트 초기화 처리 중 오류가 발생했습니다: {str(e)}"
+        )
