@@ -296,7 +296,7 @@ async def reset_all_points(
     """
     
     # 1. 관리자 비밀번호 검증 (실제 운영 시 환경변수 처리를 권장합니다)
-    ADMIN_RESET_PASSWORD = "admin1234"
+    ADMIN_RESET_PASSWORD = "admin123"
     if request.password != ADMIN_RESET_PASSWORD:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
