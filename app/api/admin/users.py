@@ -347,14 +347,12 @@ async def reset_all_points(
             )
         )
 
-        raise Exception(f"DRY_RUN_TEST: {len(new_ledger_entries)}명 리셋 시뮬레이션 성공")
-
         # 5. 트랜잭션 커밋
-        # await db.commit()
+        await db.commit()
         
-        # return {
-        #     "message": f"성공적으로 {len(new_ledger_entries)}명의 사용자의 포인트를 초기화했습니다."
-        # }
+        return {
+            "message": f"성공적으로 {len(new_ledger_entries)}명의 사용자의 포인트를 초기화했습니다."
+        }
 
     except Exception as e:
         await db.rollback()
