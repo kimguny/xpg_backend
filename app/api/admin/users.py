@@ -11,6 +11,9 @@ from app.schemas.user import UserResponse, UserUpdateRequest, PointAdjustRequest
 from app.schemas.progress import RewardHistoryItem
 from app.schemas.user import ResetAllPointsRequest
 
+from sqlalchemy import cast
+from sqlalchemy.dialects.postgresql import JSONB
+
 router = APIRouter()
 
 
@@ -340,14 +343,14 @@ async def reset_all_points(
             .where(User.profile.is_not(None))
             .values(
                 profile=func.jsonb_set(
-                    func.coalesce(User.profile, '{}'), 
-                    '{points}', 
-                    '0'
+                    # coalesce 안의 '{}'를 JSONB로 캐스팅
+                    func.coalesce(User.profile, cast('{}', JSONB)), 
+                    '{points}', # 경로 (이건 문자열 배열이라 괜찮음)
+                    cast('0', JSONB) # 값 '0'을 JSONB 타입으로 캐스팅
                 )
             )
         )
 
-        # 5. 트랜잭션 커밋
         await db.commit()
         
         return {
