@@ -214,7 +214,15 @@ async def adjust_user_points(
     
     # 3. profile 캐시 업데이트 준비
     # 현재 profile 포인트 잔액을 가져옵니다. (없으면 0)
-    current_points = user.profile.get('points', 0) if user.profile else 0
+    # current_points = user.profile.get('points', 0) if user.profile else 0
+    if user.profile and 'points' in user.profile:
+        try:
+            current_points = int(user.profile['points'])
+        except (ValueError, TypeError):
+            current_points = 0
+    else:
+        current_points = 0
+
     new_points = current_points + request.coin_delta
     
     # 4. user.profile 필드에 새 잔액 저장 (Dict 업데이트)
