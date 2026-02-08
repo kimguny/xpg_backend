@@ -32,6 +32,9 @@ from app.models.progress import (
 from app.models.store import Store
 from app.models.reward import StoreReward
 
+# 공지사항 모델
+from app.models.notification import Notification
+
 # 모든 모델을 리스트로 정리 (Alembic 등에서 사용)
 __all__ = [
     # Base classes
@@ -67,4 +70,7 @@ __all__ = [
     # Store and Reward models
     "Store",
     "StoreReward",
+    
+    # Notification models
+    "Notification",
 ]

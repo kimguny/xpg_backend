@@ -6,6 +6,7 @@ from app.api.v1.stages import router as stages_router
 from app.api.v1.progress import router as progress_router
 from app.api.v1.nfc import router as nfc_router
 from app.api.v1.rewards import router as rewards_router
+from app.api.v1.notifications import router as notifications_router
 
 # v1 API 메인 라우터
 v1_router = APIRouter(
@@ -41,9 +42,5 @@ v1_router.include_router(nfc_router, prefix="/nfc", tags=["nfc"])
 # 리워드 라우터
 v1_router.include_router(rewards_router, prefix="/rewards", tags=["rewards"])
 
-# 향후 추가될 라우터들
-# v1_router.include_router(me_router, prefix="/me", tags=["me"])  
-# v1_router.include_router(contents_router, prefix="/contents", tags=["contents"])
-# v1_router.include_router(stages_router, prefix="/stages", tags=["stages"])
-# v1_router.include_router(nfc_router, prefix="/nfc", tags=["nfc"])
-# v1_router.include_router(progress_router, prefix="/progress", tags=["progress"])
+# 공지사항 라우터
+v1_router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
