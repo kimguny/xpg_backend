@@ -84,12 +84,17 @@ async def update_notification(
     for field, value in update_data.items():
         setattr(notification, field, value)
     
-    # 상태 재계산 (날짜나 is_draft가 변경된 경우)
-    if any(key in update_data for key in ['start_at', 'end_at']) or is_draft is not None:
+    # 상태 재계산
+    # 1) is_draft가 True로 명시되면 무조건 draft
+    # 2) 그 외에는 날짜 기준으로 계산
+    if is_draft:
+        notification.status = 'draft'
+    else:
+        # 날짜가 변경되었거나, is_draft=False로 명시된 경우 재계산
         notification.status = calculate_status(
             notification.start_at,
             notification.end_at,
-            is_draft if is_draft is not None else notification.status == 'draft'
+            False
         )
     
     await db.commit()
