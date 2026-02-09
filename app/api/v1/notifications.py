@@ -17,19 +17,20 @@ async def get_notifications_app(
 ):
     """
     앱 사용자용 공지사항 목록 조회
-    - 게시 중인 공지사항만 반환 (status = 'published')
-    - 현재 시간이 start_at ~ end_at 범위 내
+    - 현재 시간이 start_at ~ end_at 범위 내인 공지사항만 반환
+    - 임시저장(draft)은 제외
     - 간소화된 필드만 반환
+    - 최신 공지부터 정렬 (created_at 내림차순)
     """
     now = datetime.now(timezone.utc)
     
     query = select(Notification).where(
         and_(
-            Notification.status == 'published',
-            Notification.start_at <= now,
-            Notification.end_at >= now
+            Notification.status != 'draft',  # 임시저장만 제외
+            Notification.start_at <= now,    # 시작일 <= 현재
+            Notification.end_at >= now       # 종료일 >= 현재
         )
-    ).order_by(Notification.created_at.desc())
+    ).order_by(Notification.created_at.desc())  # 최신순 정렬
     
     result = await db.execute(query)
     notifications = result.scalars().all()

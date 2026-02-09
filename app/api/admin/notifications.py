@@ -113,10 +113,6 @@ async def get_notifications_admin(
     count_query = select(func.count(Notification.id))
     conditions = []
     
-    # 상태 필터
-    if status and status != "all":
-        conditions.append(Notification.status == status)
-    
     # 유형 필터
     if notification_type:
         conditions.append(Notification.notification_type == notification_type)
@@ -140,8 +136,24 @@ async def get_notifications_admin(
     result = await db.execute(query)
     notifications = result.scalars().all()
     
+    # 실시간 상태 계산 및 필터링
+    now = datetime.now(timezone.utc)
+    filtered_items = []
+    
+    for n in notifications:
+        # draft가 아닌 경우 실시간으로 상태 재계산
+        if n.status != 'draft':
+            n.status = calculate_status(n.start_at, n.end_at, False)
+        
+        # 상태 필터 적용
+        if status and status != "all":
+            if n.status == status:
+                filtered_items.append(NotificationResponse.model_validate(n))
+        else:
+            filtered_items.append(NotificationResponse.model_validate(n))
+    
     return PaginatedResponse(
-        items=[NotificationResponse.model_validate(n) for n in notifications],
+        items=filtered_items,
         page=page,
         size=size,
         total=total
@@ -160,6 +172,10 @@ async def get_notification_admin(
     
     if not notification:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    
+    # draft가 아닌 경우 실시간으로 상태 재계산
+    if notification.status != 'draft':
+        notification.status = calculate_status(notification.start_at, notification.end_at, False)
     
     return NotificationResponse.model_validate(notification)
 
