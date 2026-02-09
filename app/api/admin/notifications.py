@@ -22,9 +22,9 @@ def calculate_status(start_at: datetime, end_at: datetime, is_draft: bool = Fals
         return 'draft'
     
     now = datetime.now(timezone.utc)
-    if now < start_at:
+    if now < start_at:  # 시작일 전
         return 'scheduled'
-    elif start_at <= now <= end_at:
+    elif now <= end_at:  # 시작일 ~ 종료일 (시작일 포함)
         return 'published'
     else:
         return 'expired'
