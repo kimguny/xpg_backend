@@ -108,9 +108,9 @@ async def get_notifications_admin(
     db: AsyncSession = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """공지사항 목록 조회 (관리자)"""
+    """공지사항 목록 조회 (관리자) - 실시간 상태 계산"""
+    # 먼저 모든 공지를 가져옴
     query = select(Notification)
-    count_query = select(func.count(Notification.id))
     conditions = []
     
     # 유형 필터
@@ -123,37 +123,33 @@ async def get_notifications_admin(
     
     if conditions:
         query = query.where(and_(*conditions))
-        count_query = count_query.where(and_(*conditions))
     
-    # 전체 개수 조회
-    total_result = await db.execute(count_query)
-    total = total_result.scalar_one()
+    query = query.order_by(Notification.created_at.desc())
+    
+    result = await db.execute(query)
+    all_notifications = result.scalars().all()
+    
+    # 실시간 상태 계산
+    now = datetime.now(timezone.utc)
+    for n in all_notifications:
+        if n.status != 'draft':
+            n.status = calculate_status(n.start_at, n.end_at, False)
+    
+    # 상태 필터 적용 (실시간 계산 후)
+    if status and status != "all":
+        filtered = [n for n in all_notifications if n.status == status]
+    else:
+        filtered = all_notifications
+    
+    # 전체 개수
+    total = len(filtered)
     
     # 페이지네이션
     offset = (page - 1) * size
-    query = query.offset(offset).limit(size).order_by(Notification.created_at.desc())
-    
-    result = await db.execute(query)
-    notifications = result.scalars().all()
-    
-    # 실시간 상태 계산 및 필터링
-    now = datetime.now(timezone.utc)
-    filtered_items = []
-    
-    for n in notifications:
-        # draft가 아닌 경우 실시간으로 상태 재계산
-        if n.status != 'draft':
-            n.status = calculate_status(n.start_at, n.end_at, False)
-        
-        # 상태 필터 적용
-        if status and status != "all":
-            if n.status == status:
-                filtered_items.append(NotificationResponse.model_validate(n))
-        else:
-            filtered_items.append(NotificationResponse.model_validate(n))
+    paginated = filtered[offset:offset + size]
     
     return PaginatedResponse(
-        items=filtered_items,
+        items=[NotificationResponse.model_validate(n) for n in paginated],
         page=page,
         size=size,
         total=total
