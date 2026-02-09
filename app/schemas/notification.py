@@ -73,6 +73,7 @@ class NotificationAppResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID
+    title: str
     notification_type: str
     start_at: datetime
     end_at: datetime
