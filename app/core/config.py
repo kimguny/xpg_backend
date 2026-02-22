@@ -22,11 +22,11 @@ class Settings(BaseSettings):
         "http://121.126.223.205:3000"
     ]
     
-    # 데이터베이스 설정 (실제 XPG 서버)
-    DATABASE_URL: str = "postgresql://postgres:active1004@121.126.223.205:5432/xnpc"
+    # 데이터베이스 설정
+    DATABASE_URL: str = ""
     
     # JWT 설정
-    SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
