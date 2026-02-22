@@ -39,7 +39,7 @@ if not os.path.exists(static_dir):
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-UPLOAD_DIR = Path("/var/www/xpg/uploads/images") 
+UPLOAD_DIR = Path(settings.UPLOAD_DIR) 
 MEDIA_URL_PREFIX = "/media/images" 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(MEDIA_URL_PREFIX, StaticFiles(directory=UPLOAD_DIR), name="media")

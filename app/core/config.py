@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     DEFAULT_NFC_COOLDOWN_SEC: int = 30
     MAX_NFC_RADIUS_M: int = 1000
 
+    # 업로드 이미지 설정
+    UPLOAD_DIR: str = "./uploads/images"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
